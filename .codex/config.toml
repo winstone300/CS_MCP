@@ -1,0 +1,27 @@
+# 기본 모델은 Codex 설정을 상속합니다. 필요하면 model/model_reasoning_effort를 지정하세요.
+web_search = "disabled"
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 3
+
+# BEGIN CS-STUDY MANAGED CONNECTIONS
+[mcp_servers.cs_study]
+command = "C:/Users/SSAFY/Desktop/CS_MCP/.venv/Scripts/python.exe"
+args = ["-m", "cs_study_mcp", "--project", "C:/Users/SSAFY/Desktop/CS_MCP", "serve", "--role", "main"]
+cwd = "C:/Users/SSAFY/Desktop/CS_MCP"
+enabled = true
+required = true
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+enabled_tools = ["create_study", "get_document_blueprint", "get_knowledge_section", "get_question_blueprint", "get_runtime_info", "get_study", "list_studies", "prepare_visual_assets", "record_review", "register_visual_asset", "request_research_followup", "save_draft", "validate_knowledge", "validate_presentation"]
+[mcp_servers.cs_study.env]
+PYTHONUTF8 = "1"
+
+[mcp_servers.notion]
+url = "https://mcp.notion.com/mcp"
+enabled = false
+required = false
+startup_timeout_sec = 60
+tool_timeout_sec = 120
+# END CS-STUDY MANAGED CONNECTIONS

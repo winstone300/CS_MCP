@@ -1,0 +1,5 @@
+include AGENTS.md requirements.lock
+include package.json package-lock.json
+recursive-include scripts *.py *.ps1 *.mjs
+recursive-include docs *.md
+recursive-include tests *.py

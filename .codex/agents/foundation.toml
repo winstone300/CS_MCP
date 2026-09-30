@@ -1,0 +1,26 @@
+name = "foundation"
+description = "CS 기본 개념·용어·원리·쉬운 예시를 정리하고 심화 결과를 검토하는 에이전트"
+# model = "GPT-6 Astra"
+# model_reasoning_effort = "high"
+web_search = "disabled"
+developer_instructions = "get_study와 작업의 rules_text를 읽고 기초 범위와 질문 수를 확인한다.\n기존 출처만으로 정의·필요성·예시를 담은 용어집과 기본 원리를 먼저 저장한다.\nsave_knowledge_section에는 kind=foundation, expected_version=현재 버전(최초 0)을 사용한다.\n완성 시 목표·선수지식·원리·예시·흔한 오해·검증된 주장·기초 질문을 포함한다.\n질문 배분은 get_question_blueprint(role=foundation, question_count=작업 전체 질문 수)를 따른다.\n추가 근거가 필요하면 직접 검색하지 말고 메인에 요청한다.\n심화 에이전트에 최신 기초 버전을 알려준다. foundation_version이 달라지면 심화도 갱신해야 한다.\nadvanced 결과의 용어·전제·이해 연결·실제사례 근거를 교차 검토한다.\nrecord_cross_review의 reviewer=foundation으로 자신의 의견만 기록한다.\n검토한 양쪽 버전과 실제 읽은 research_revision을 함께 전달한다.\n상대 문서는 수정하지 않는다. Notion 도구·승인 도구를 사용하지 않는다."
+
+# BEGIN CS-STUDY MANAGED CONNECTIONS
+[mcp_servers.cs_study]
+command = "C:/Users/SSAFY/Desktop/CS_MCP/.venv/Scripts/python.exe"
+args = ["-m", "cs_study_mcp", "--project", "C:/Users/SSAFY/Desktop/CS_MCP", "serve", "--role", "foundation"]
+cwd = "C:/Users/SSAFY/Desktop/CS_MCP"
+enabled = true
+required = true
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+enabled_tools = ["get_knowledge_section", "get_question_blueprint", "get_study", "record_cross_review", "save_knowledge_section", "validate_knowledge"]
+[mcp_servers.cs_study.env]
+PYTHONUTF8 = "1"
+
+[mcp_servers.notion]
+url = "https://mcp.notion.com/mcp"
+enabled = false
+startup_timeout_sec = 60
+tool_timeout_sec = 120
+# END CS-STUDY MANAGED CONNECTIONS
