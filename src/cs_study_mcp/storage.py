@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -84,6 +85,15 @@ CREATE TABLE publication_assets (
 );
 """
 
+MIGRATION_V3 = """
+CREATE TABLE document_previews (
+ job_id TEXT NOT NULL REFERENCES jobs(id), version INTEGER NOT NULL,
+ plan TEXT NOT NULL, dependencies TEXT NOT NULL, rendered TEXT NOT NULL,
+ presentation_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+ PRIMARY KEY(job_id,version)
+);
+"""
+
 
 def now() -> str:
     return datetime.now(UTC).isoformat()
@@ -113,15 +123,15 @@ class Database:
                         raise
                     time.sleep(0.05)
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2):
+            if version not in (0, 1, 2, 3):
                 raise RuntimeError(f"지원하지 않는 DB 스키마 버전: {version}")
-            if version < 2:
+            if version < 3:
                 # Backup API includes committed WAL frames. Never copy an open .sqlite file.
-                if version == 1:
+                if version in (1, 2):
                     backup = (
                         self.directory
                         / "backups"
-                        / ("schema-v1-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f"))
+                        / (f"schema-v{version}-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f") + "-" + uuid4().hex)
                     )
                     backup.mkdir(parents=True)
                     with sqlite3.connect(backup / "study.sqlite3") as target:
@@ -148,6 +158,11 @@ class Database:
                             (dumps(profile_snapshot("legacy_v1")),),
                         )
                         db.execute("PRAGMA user_version = 2")
+                    if current < 3:
+                        for statement in MIGRATION_V3.split(";"):
+                            if statement.strip():
+                                db.execute(statement)
+                        db.execute("PRAGMA user_version = 3")
                     db.commit()
                 except BaseException:
                     db.rollback()

@@ -9,6 +9,20 @@ from .models import AdvancedSection, Explanation, FoundationSection, Source
 
 def profile_snapshot(name: str = "study_readable_v2") -> dict:
     """Return an independent snapshot to persist when a study is created."""
+    if name == "study_topic_v3":
+        profile = profile_snapshot("study_readable_v2")
+        profile.update(name=name, version=3, schema_version=3, renderer_version=3,
+                       verification_version=3)
+        profile["guidance"].update(
+            order=["핵심 요약·대표 그림", "목표·선수지식", "주제별 중첩 토글",
+                   "전체 연결 시나리오·실제 사례", "면접 키워드·질문", "참고자료"],
+            composition="작성 역할과 읽는 순서를 분리합니다. 기존 항목을 역할과 ID로 정확히 한 번 배치합니다.",
+            review="제목·요약·목차·본문·실제 그림이 포함된 같은 버전의 전체 미리보기를 양쪽 역할이 확인합니다.",
+        )
+        profile["roles"]["main"] = "목차·요약을 구성하고 prepare_document_preview로 교차 검토할 불변 후보를 준비합니다. 검토한 후보만 save_draft로 승격합니다."
+        profile["roles"]["advanced"] += " 전체 개념 연결 시나리오도 근거와 함께 작성합니다."
+        profile["recommendations"]["toggle_depth"] = 2
+        return profile
     if name not in {"legacy_v1", "study_readable_v2"}:
         raise ValueError(f"알 수 없는 문서 프로필: {name}")
     version = 1 if name == "legacy_v1" else 2

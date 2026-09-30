@@ -8,7 +8,7 @@ import re
 from html import escape
 from pathlib import Path
 
-from .models import AdvancedSection, DraftInput, FoundationSection, Source
+from .models import AdvancedSection, DraftInput, FoundationSection, OutlineGroup, Source
 
 
 def _label(value: str) -> str:
@@ -28,6 +28,8 @@ def render_readable(
     sources: dict[str, Source],
     profile: dict,
     assets: list[dict],
+    *,
+    outline=None,
 ) -> dict:
     from .publication import canonicalize_markdown
 
@@ -149,8 +151,11 @@ def render_readable(
     for objective in foundation.objectives:
         block(f"- {objective}")
     block("**선수지식:** " + (", ".join(foundation.prerequisites) or "별도 선수지식 없음"))
+    introduction = list(lines)
+    item_blocks = {}
     block("## 핵심 용어")
     for term in foundation.terms:
+        start = len(lines)
         block(f"### {term.name}")
         body(foundation, term.definition, term.claim_ids)
         if term.why:
@@ -158,26 +163,34 @@ def render_readable(
         if term.example:
             block(f"**짧은 예시:** {term.example}")
         after(foundation, term.id)
+        item_blocks[("foundation", term.id)] = lines[start:]
     block("## 기본 원리·쉬운 예시")
     for item in foundation.principles:
+        start = len(lines)
         block(f"### {item.heading}")
         if item.key_point:
             block(f"**{item.key_point}**")
         body(foundation, item.body, item.claim_ids)
         after(foundation, item.id)
+        item_blocks[("foundation", item.id)] = lines[start:]
     for item in foundation.examples:
+        start = len(lines)
         label = "가상 설명용 예시" if item.kind == "hypothetical" else "출처로 확인한 예시"
         block(f"### {item.title} ({label})")
         body(foundation, item.body, item.claim_ids)
         after(foundation, item.id)
+        item_blocks[("foundation", item.id)] = lines[start:]
     block("## 심화 동작·장단점")
     for item in advanced.concepts:
+        start = len(lines)
         block(f"### {item.heading}")
         if item.key_point:
             block(f"**{item.key_point}**")
         body(advanced, item.body, item.claim_ids)
         after(advanced, item.id)
+        item_blocks[("advanced", item.id)] = lines[start:]
     for item in advanced.tradeoffs:
+        start = len(lines)
         block(f"### {item.topic}")
         for label, value in [
             ("선택지", item.options),
@@ -188,8 +201,10 @@ def render_readable(
             block(f"**{label}:** {value}")
         block(cite(advanced, item.claim_ids))
         after(advanced, item.id)
+        item_blocks[("advanced", item.id)] = lines[start:]
     block("## 실제 사례")
     for case in advanced.cases:
+        start = len(lines)
         block(f"### {case.title}")
         for label, value in [
             ("대상 시스템", case.system),
@@ -203,6 +218,26 @@ def render_readable(
         block("**확인된 사실의 근거:** " + cite(advanced, case.claim_ids))
         block("**학습을 위한 해석:** " + case.interpretation)
         after(advanced, case.id)
+        item_blocks[("advanced", case.id)] = lines[start:]
+    if outline is not None:
+        # Convert materials before adding structural tabs, including nested HTML tables.
+        def arrange(nodes, depth=0):
+            arranged = []
+            for node in nodes:
+                if isinstance(node, OutlineGroup):
+                    children = arrange(node.children, depth + 1)
+                    title = escape(node.title, quote=False)
+                    if node.display == "heading":
+                        arranged.extend([f"{'#' * min(6, depth + 2)} {title}", "", *children])
+                    else:
+                        nested = "\n".join("\t" + line for line in "\n".join(children).split("\n"))
+                        arranged.extend([f"<details>\n<summary>{title}</summary>\n{nested}\n</details>", ""])
+                else:
+                    arranged.extend(notion_overrides.get(line, line)
+                                    for line in item_blocks[(node.section, node.item_id)])
+            return arranged
+
+        lines = introduction + arrange(outline)
     common = list(lines)
     block("## 면접 질문")
     questions = [

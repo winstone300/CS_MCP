@@ -8,8 +8,10 @@ from mcp.types import ToolAnnotations
 
 from .models import (
     CrossReview,
+    DocumentPlanInput,
     DraftInput,
     KnowledgeSection,
+    PreviewReference,
     PublicationInput,
     ReviewInput,
     Role,
@@ -29,6 +31,7 @@ READ_TOOLS = {
     "get_document_blueprint",
     "validate_presentation",
     "get_publication_payload",
+    "get_document_preview",
 }
 TOOLS_BY_ROLE: dict[str, set[str]] = {
     "main": (READ_TOOLS - {"get_publication_payload"})
@@ -39,9 +42,11 @@ TOOLS_BY_ROLE: dict[str, set[str]] = {
         "record_review",
         "prepare_visual_assets",
         "register_visual_asset",
+        "prepare_document_preview",
     },
     "research": {"get_runtime_info", "get_study", "save_research", "get_document_blueprint"},
     "foundation": {
+        "get_document_preview",
         "get_runtime_info",
         "get_study",
         "get_knowledge_section",
@@ -53,6 +58,7 @@ TOOLS_BY_ROLE: dict[str, set[str]] = {
         "validate_presentation",
     },
     "advanced": {
+        "get_document_preview",
         "get_runtime_info",
         "get_study",
         "get_knowledge_section",
@@ -97,7 +103,7 @@ def create_server(root: Path, role: Role = "main") -> FastMCP:
         topic: str,
         level: str = "CS 기본 지식·면접 준비",
         question_count: int = 6,
-        presentation_profile: Literal["study_readable_v2", "legacy_v1"] = "study_readable_v2",
+        presentation_profile: Literal["study_topic_v3", "study_readable_v2", "legacy_v1"] = "study_topic_v3",
         visual_transport: Literal["mermaid", "image"] = "mermaid",
     ) -> dict[str, Any]:
         """새 학습 작업과 AGENTS.md 스냅샷을 생성합니다. 모델은 호출하지 않습니다."""
@@ -175,8 +181,16 @@ def create_server(root: Path, role: Role = "main") -> FastMCP:
             )
         return service.record_cross_review(job_id, review)
 
-    def save_draft(job_id: str, content: DraftInput) -> dict[str, Any]:
-        """메인이 검토를 통과한 두 부분 문서를 통합·렌더링합니다. 새 버전은 새 사용자 승인이 필요합니다."""
+    def prepare_document_preview(job_id: str, content: DocumentPlanInput, expected_version: int) -> dict[str, Any]:
+        """메인 전용 v3 전체 미리보기. 제목·요약·목차·본문·자산을 교차 검토 전에 고정합니다. 최초 버전은 0. 저장은 사용자 승인이나 발행이 아닙니다."""
+        return service.prepare_document_preview(job_id, content, expected_version)
+
+    def get_document_preview(job_id: str, version: int | None = None) -> dict[str, Any]:
+        """실제 읽을 v3 미리보기 버전·본문·경로·해시와 최신 의존성 일치 여부를 조회합니다."""
+        return service.get_document_preview(job_id, version)
+
+    def save_draft(job_id: str, content: DraftInput | PreviewReference) -> dict[str, Any]:
+        """v3는 검토한 preview_version/presentation_hash만 전달해 저장 후보를 승격합니다. v1/v2는 기존 DraftInput을 사용합니다. 새 버전은 새 사용자 승인이 필요합니다."""
         return service.save_draft(job_id, content)
 
     def get_study(job_id: str) -> dict[str, Any]:
@@ -209,6 +223,8 @@ def create_server(root: Path, role: Role = "main") -> FastMCP:
         validate_presentation,
         register_visual_asset,
         prepare_visual_assets,
+        prepare_document_preview,
+        get_document_preview,
         record_publication_asset,
         get_publication_payload,
         record_cross_review,

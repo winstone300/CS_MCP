@@ -51,7 +51,7 @@ def readable_sections():
 @pytest.fixture
 def v2(service):
     real = StudyService(service.root)
-    job = real.create_study("합성 시각 문서 fixture")
+    job = real.create_study("합성 시각 문서 fixture", presentation_profile="study_readable_v2")
     real.save_research(job["job_id"], [sample_source()])
     f, a = readable_sections()
     real.save_knowledge_section(job["job_id"], f, 0)
@@ -334,7 +334,7 @@ def test_parallel_fresh_database_initialization(tmp_path):
     with ThreadPoolExecutor(max_workers=5) as pool:
         instances = list(pool.map(lambda _: StudyService(tmp_path), range(10)))
     with instances[0].db.connect() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         assert db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
 
 

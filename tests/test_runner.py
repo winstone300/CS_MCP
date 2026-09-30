@@ -268,6 +268,7 @@ def test_presentation_prompt_upgrade_preserves_custom_settings_and_is_idempotent
     upgraded = tomllib.loads(first)
     assert upgraded["developer_instructions"].startswith(customized + "\n\n")
     assert upgraded["developer_instructions"].count("[CS-STUDY PRESENTATION V2]") == 1
+    assert upgraded["developer_instructions"].count("[CS-STUDY TOPIC V3]") == 1
     assert "legacy_v1" in upgraded["developer_instructions"]
     assert upgraded["model"] == "custom-model"
     assert upgraded["model_reasoning_effort"] == "high"
@@ -284,6 +285,8 @@ def test_check_keeps_study_and_assets_unchanged_with_new_presentation_tools(
 ):
     configure(service.root)
     job_id = service.create_study("읽기 전용 진단 fixture")["job_id"]
+    with service.db.connect(write=True) as db:
+        db.execute("UPDATE jobs SET status='needs_attention',error='기존 모의 발행 오류' WHERE id=?", (job_id,))
     before = service.get_study(job_id)
     visible = (
         ["get_runtime_info", "get_study"]
@@ -326,6 +329,7 @@ def test_check_keeps_study_and_assets_unchanged_with_new_presentation_tools(
     assert "시험용 그림을 저장하고 승인해" not in captured["prompt"]
     assert "로컬 MCP 도구는 호출하지 마세요" in captured["prompt"]
     assert "Notion은 호출하지 마세요." in captured["prompt"]
+    assert "기존 작업 status/error" in captured["prompt"]
     if role == "notion_writer":
         enabled = set(overrides(captured["command"])["mcp_servers"]["cs_study"]["enabled_tools"])
         assert enabled.isdisjoint(

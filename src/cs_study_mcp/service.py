@@ -16,13 +16,14 @@ from .models import (
     DraftInput,
     FoundationSection,
     KnowledgeSection,
+    PreviewReference,
     PublicationInput,
     ReviewInput,
     SectionKind,
     Source,
 )
 from .presentation import profile_snapshot
-from .presentation_service import PresentationService, is_readable, profile_for
+from .presentation_service import PresentationService, is_readable, is_topic, profile_for
 from .render import digest, normalize_markdown, render_document
 from .settings import configured_parent, notion_id
 from .storage import Database, dumps, event, now
@@ -104,7 +105,7 @@ class StudyService(PresentationService):
         topic: str,
         level: str = "CS 기본 지식·면접 준비",
         question_count: int = 6,
-        presentation_profile: str = "study_readable_v2",
+        presentation_profile: str = "study_topic_v3",
         visual_transport: str = "mermaid",
     ) -> dict:
         topic, level = topic.strip(), level.strip()
@@ -388,9 +389,22 @@ class StudyService(PresentationService):
                     "stale_visual_review", "실제 그림과 최신 배치를 다시 교차 검토하세요."
                 )
 
-    def save_draft(self, job_id: str, content: DraftInput) -> dict:
+    def save_draft(self, job_id: str, content: DraftInput | PreviewReference) -> dict:
         with self.db.connect(write=True) as db:
             job = self._editable(db, job_id)
+            candidate = None
+            if is_topic(job):
+                if not isinstance(content, PreviewReference):
+                    raise WorkflowError("preview_required", "v3 초안은 검토한 preview_version과 presentation_hash로 저장하세요.")
+                candidate = self._preview_row(db, job_id)
+                presentation = self._require_presentation(db, job)
+                if (candidate["version"] != content.preview_version
+                        or presentation["presentation_hash"] != content.presentation_hash):
+                    raise WorkflowError("stale_preview", "검토한 최신 미리보기 후보가 필요합니다.")
+                plan = json.loads(candidate["plan"])
+                content = DraftInput.model_validate({key: plan[key] for key in DraftInput.model_fields})
+            elif not isinstance(content, DraftInput):
+                raise WorkflowError("profile_required", "기존 작업에는 기존 DraftInput을 사용하세요.")
             report = self._validation(db, job)
             if not report["valid"]:
                 raise WorkflowError("validation_failed", dumps(report["issues"]))
@@ -434,13 +448,9 @@ class StudyService(PresentationService):
                     {**asset, "path": str((self.root / asset["path"]).resolve())}
                     for asset in presentation["assets"]
                 ]
-                rendered = render_readable(
-                    content,
-                    foundation,
-                    advanced,
-                    self._source_map(db, job_id),
-                    profile_for(job),
-                    preview_assets,
+                rendered = json.loads(candidate["rendered"]) if candidate is not None else render_readable(
+                    content, foundation, advanced, self._source_map(db, job_id),
+                    profile_for(job), preview_assets,
                 )
                 markdown, notion_markdown, preview_html = (
                     rendered["markdown"],
@@ -458,6 +468,10 @@ class StudyService(PresentationService):
                     "assets": presentation["assets"],
                     "research_revision": job["research_revision"],
                 }
+                if candidate is not None:
+                    manifest.update(hash_kind="presentation_bundle_v3",
+                                    composition_version=candidate["version"],
+                                    plan_hash=digest(candidate["plan"]))
                 bundle_hash = digest(dumps(manifest))
             else:
                 markdown, _ = render_document(
@@ -495,7 +509,7 @@ class StudyService(PresentationService):
             "markdown": markdown,
             "status": "awaiting_review",
             "bundle_hash": bundle_hash,
-            "hash_kind": "presentation_bundle_v2" if bundle_hash else "markdown_v1",
+            "hash_kind": manifest["hash_kind"] if bundle_hash else "markdown_v1",
             "presentation_warnings": presentation_warnings,
         }
         try:
@@ -855,4 +869,10 @@ class StudyService(PresentationService):
             job["presentation_profile"] = profile_for(job)
             job["presentation_profile_hash"] = digest(dumps(job["presentation_profile"]))
             job["asset_receipts"] = self._receipts(db, job_id)
+            if job["presentation_profile"]["name"] == "study_topic_v3":
+                preview = self._preview_row(db, job_id)
+                job["document_preview"] = None if preview is None else {
+                    "version": preview["version"], "presentation_hash": preview["presentation_hash"],
+                    "instructions": "get_document_preview로 해당 버전의 실제 내용과 최신 의존성 일치 여부를 확인하세요.",
+                }
             return job

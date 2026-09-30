@@ -203,3 +203,47 @@ foundation v3·advanced v2 작성을 거쳐 양쪽 교차 검토를 통과했다
 5. 재조회와 화면 검사, completed 기록 뒤에만 최종 URL과 실제 성공을 보고한다.
 
 이 절에 실제 페이지 생성 ID·완료 기록이 추가되기 전까지 새 문서 형식의 Notion 수용 시험은 미완료다.
+
+## 2026-09-30: 주제별 문서 v3 구현 검증
+
+새 작업의 기본 프로필을 `study_topic_v3`로 변경했다. 역할별 본문을 안정 ID로 참조하는
+주제별 heading/toggle 목차와 불변 전체 미리보기를 추가했다. 제목·요약·목차까지 포함한 같은
+미리보기를 양쪽이 검토해야 초안으로 승격할 수 있다. 기존 작업의 프로필과 승인 규칙은 유지한다.
+
+최종 자동 검증은 **198개 통과(29.87초)**, Ruff는 **All checks passed**였다. 실제 stdio MCP의
+재귀 목차 입력·미리보기 준비·초안 승격 왕복, 권한 분리, 검토 전 승격 차단, 변경 후 승인 무효화,
+파일·DB·자산 변조, 동시 수정·마이그레이션, 내보내기 실패 복구 및 모의 발행 재조회를 포함한다.
+모의 발행 검사는 실제 Notion 표시나 쓰기 성공의 근거가 아니다.
+
+실제 로컬 DB를 schema v3로 전환하기 전 SQLite backup과 자산 복사본을
+`.cs-study/backups/schema-v2-20260930T071001699505/`에 저장했다. 비교 기록은
+`.cs-study/v3-migration-audit.json`에 있다. 기존 jobs 2, sources 16, sections 8, drafts 3,
+reviews 2, publications 2, cross_reviews 4, events 30, assets 8, section_assets 8의 모든
+기존 행과 자산 파일 15개가 보존됐다. 기준 커밋 `6f0dd45`의 v2 렌더러와 동일 입력을 비교해
+Markdown·Notion Markdown·HTML·블록 출력이 모두 같음을 확인했다.
+
+`doctor`는 다섯 역할의 서버·도구·실행 경로가 설정과 일치하며 `local_ready=true`임을 확인했다.
+독립 CLI의 실제 읽기 전용 `--check`도 다음 네 역할에서 종료 코드 0 및
+`diagnostic_passed=true`로 완료됐다. 실행별 보고서는 `.cs-study/runs/<run_id>/`에 있다.
+
+| 역할 | 실행 ID | 실제 확인 범위 |
+|---|---|---|
+| foundation | `11181312-35b2-4e3d-8fab-2600c843f248` | 역할·허용 도구·기존 작업 조회, 새 미리보기 조회 도구 노출 |
+| advanced | `fdae1c7c-5585-4132-abed-3ee3eeb1829f` | 역할·허용 도구·기존 작업 조회, 새 미리보기 조회 도구 노출 |
+| research | `c1835f1e-2593-46c8-b098-23fae27b1bf2` | 역할·허용 도구·기존 작업 조회, 웹 원문 읽기 |
+| notion_writer | `a3cbb6f4-1c5f-4dc0-abe0-b9e53dacab1c` | 역할·읽기 전용 로컬 도구·기존 작업 조회, Notion 읽기 바인딩 노출 |
+
+research와 writer의 첫 진단은 기존 작업의 `needs_attention` 발행 오류를 현재 연결 오류로
+보고해 실패했다. 진단 프롬프트에서 저장된 작업 오류와 현재 연결 오류를 구분하도록 수정한 뒤
+재실행했다. 최초 실패 보고서는 보존했고, 기존 작업 상태·오류·발행 이력을 수정하지 않았다.
+이번 writer 진단은 Notion 도구를 호출하지 않았으며 쓰기 바인딩도 노출하지 않았다.
+
+`tests/topic_demo.py`로 HTTP Request 개발용 샘플을
+`.cs-study/previews/topic-v3-demo/index.html`에 생성했다. 중첩 토글·코드·표·Mermaid·캡션의
+구조는 자동 검사했고, 생성된 PNG의 한국어 라벨과 요청·응답 화살표는 이미지로 직접 확인했다.
+HTML 파일을 브라우저에서 여는 작업은 로컬 URL 정책에 차단되어 이번 v3 HTML 화면의 실제
+펼침·레이아웃 검증은 수행하지 못했다. 샘플은 검증된 학습 문서나 발행용 초안이 아니다.
+
+실제 v3 Notion 생성·중첩 토글 표시·재조회 수용 시험은 미실시다. 진행하려면 별도의 구체적인
+초안과 대상을 제시한 뒤 사용자 승인을 받아야 한다. 현재 데스크톱의 장기 실행 MCP에는
+이전 도구 목록이 남을 수 있으므로 새 채팅 또는 cs_study MCP 재연결 후 새 도구를 사용한다.

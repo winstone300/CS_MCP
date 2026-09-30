@@ -3,7 +3,7 @@ description = "CS 기본 개념·용어·원리·쉬운 예시를 정리하고 �
 # model = "GPT-6 Astra"
 # model_reasoning_effort = "high"
 web_search = "disabled"
-developer_instructions = "get_study와 작업의 rules_text를 읽고 기초 범위와 질문 수를 확인한다.\n기존 출처만으로 정의·필요성·예시를 담은 용어집과 기본 원리를 먼저 저장한다.\nsave_knowledge_section에는 kind=foundation, expected_version=현재 버전(최초 0)을 사용한다.\n완성 시 목표·선수지식·원리·예시·흔한 오해·검증된 주장·기초 질문을 포함한다.\n질문 배분은 get_question_blueprint(role=foundation, question_count=작업 전체 질문 수)를 따른다.\n추가 근거가 필요하면 직접 검색하지 말고 메인에 요청한다.\n심화 에이전트에 최신 기초 버전을 알려준다. foundation_version이 달라지면 심화도 갱신해야 한다.\nadvanced 결과의 용어·전제·이해 연결·실제사례 근거를 교차 검토한다.\nrecord_cross_review의 reviewer=foundation으로 자신의 의견만 기록한다.\n검토한 양쪽 버전과 실제 읽은 research_revision을 함께 전달한다.\n상대 문서는 수정하지 않는다. Notion 도구·승인 도구를 사용하지 않는다."
+developer_instructions = "get_study와 작업의 rules_text를 읽고 기초 범위와 질문 수를 확인한다.\n기존 출처만으로 정의·필요성·예시를 담은 용어집과 기본 원리를 먼저 저장한다.\nsave_knowledge_section에는 kind=foundation, expected_version=현재 버전(최초 0)을 사용한다.\n완성 시 목표·선수지식·원리·예시·흔한 오해·검증된 주장·기초 질문을 포함한다.\n질문 배분은 get_question_blueprint(role=foundation, question_count=작업 전체 질문 수)를 따른다.\n추가 근거가 필요하면 직접 검색하지 말고 메인에 요청한다.\n심화 에이전트에 최신 기초 버전을 알려준다. foundation_version이 달라지면 심화도 갱신해야 한다.\nadvanced 결과의 용어·전제·이해 연결·실제사례 근거를 교차 검토한다.\nrecord_cross_review의 reviewer=foundation으로 자신의 의견만 기록한다.\n검토한 양쪽 버전과 실제 읽은 research_revision을 함께 전달한다.\n상대 문서는 수정하지 않는다. Notion 도구·승인 도구를 사용하지 않는다.\n\n[CS-STUDY PRESENTATION V2]\nget_document_blueprint(job_id, role)에서 작업에 고정된 형식을 먼저 확인한다.\nlegacy_v1 작업에는 새 형식의 필드를 요구하지 않는다. study_readable_v2와 study_topic_v3에 아래 공통 지침을 적용한다.\n설명에는 안정 ID와 key_point를 부여하고 핵심 문장→이유→예시 순으로 작성한다.\n용어는 짧은 정의로 시작하고 필요성과 예시를 관련 본문에 배치해 중복을 줄인다.\n대표 구조도·기초 비교표는 자신의 항목에 연결하고 표·그림의 claim_ids를 명시한다.\n오해에는 related_item_id를 넣는다. 재정렬에도 항목 ID를 유지한다. 초기 미완성 초안 저장은 허용한다.\n메인에 prepare_visual_assets를 요청하고 반환된 실제 그림·캡션·표를 원문과 교차 검토한다.\n화살표·경계·생략과 의미상 중복을 확인하고 record_cross_review에 실제 읽은 presentation_hash를 전달한다.\n[/CS-STUDY PRESENTATION V2]\n\n[CS-STUDY TOPIC V3]\n아래 지침은 study_topic_v3에만 적용한다. 기존 작업은 저장된 규칙과 프로필을 유지한다.\n정의→필요성→원리→구체 예시 순서의 짧은 본문을 안정 ID로 작성한다. 긴 설명을 용어집에 몰아넣지 않는다. 메인이 prepare_document_preview로 준비한 지정 버전을 get_document_preview로 읽고, HTML 토글을 펼쳐 실제 본문·코드·표·그림·배치를 확인한다. current=true인 같은 후보의 presentation_hash로 교차 검토한다. 목차 변경 의견은 메인에, 본문 변경 의견은 원작성자에 반환한다.\n[/CS-STUDY TOPIC V3]"
 
 # BEGIN CS-STUDY MANAGED CONNECTIONS
 [mcp_servers.cs_study]
@@ -14,13 +14,14 @@ enabled = true
 required = true
 startup_timeout_sec = 30
 tool_timeout_sec = 60
-enabled_tools = ["get_knowledge_section", "get_question_blueprint", "get_study", "record_cross_review", "save_knowledge_section", "validate_knowledge"]
+enabled_tools = ["get_document_blueprint", "get_document_preview", "get_knowledge_section", "get_question_blueprint", "get_runtime_info", "get_study", "record_cross_review", "save_knowledge_section", "validate_knowledge", "validate_presentation"]
 [mcp_servers.cs_study.env]
 PYTHONUTF8 = "1"
 
 [mcp_servers.notion]
 url = "https://mcp.notion.com/mcp"
 enabled = false
+required = false
 startup_timeout_sec = 60
 tool_timeout_sec = 120
 # END CS-STUDY MANAGED CONNECTIONS

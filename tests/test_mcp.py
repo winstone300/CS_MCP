@@ -114,7 +114,7 @@ async def test_mcp_schemas_expose_visual_layout_and_bundle_evidence(service):
         tool.name: tool for tool in await create_server(service.root, "main").list_tools()
     }
     creation = main_tools["create_study"].inputSchema["properties"]
-    assert creation["presentation_profile"]["default"] == "study_readable_v2"
+    assert creation["presentation_profile"]["default"] == "study_topic_v3"
     assert creation["visual_transport"]["enum"] == ["mermaid", "image"]
     assert main_tools["get_document_blueprint"].inputSchema["required"] == ["job_id", "role"]
     assert (

@@ -61,7 +61,7 @@ observed_parent_page_id=실제 상위 페이지 ID, observed_markdown=실제 본
 }
 
 PRESENTATION_COMMON = """get_document_blueprint(job_id, role)에서 작업에 고정된 형식을 먼저 확인한다.
-legacy_v1 작업에는 새 형식의 필드를 요구하지 않는다. study_readable_v2에만 아래 지침을 적용한다.
+legacy_v1 작업에는 새 형식의 필드를 요구하지 않는다. study_readable_v2와 study_topic_v3에 아래 공통 지침을 적용한다.
 """
 PRESENTATION = {
     "research": """도식의 경계·관계·순서·전제와 비교표에 필요한 원문 근거를 수집한다.
@@ -99,6 +99,15 @@ def presentation_instructions(role: str) -> str:
         + PRESENTATION_COMMON
         + PRESENTATION[role]
         + "\n[/CS-STUDY PRESENTATION V2]"
+        + "\n\n[CS-STUDY TOPIC V3]\n"
+        + "아래 지침은 study_topic_v3에만 적용한다. 기존 작업은 저장된 규칙과 프로필을 유지한다.\n"
+        + {
+            "research": "메인이 정한 주제별 목차의 정의·필요성·동작·비교·전체 연결 시나리오 근거를 조사한다. 참고 문서의 표현을 사실 검증 없이 복사하지 않는다.",
+            "foundation": "정의→필요성→원리→구체 예시 순서의 짧은 본문을 안정 ID로 작성한다. 긴 설명을 용어집에 몰아넣지 않는다. 메인이 prepare_document_preview로 준비한 지정 버전을 get_document_preview로 읽고, HTML 토글을 펼쳐 실제 본문·코드·표·그림·배치를 확인한다. current=true인 같은 후보의 presentation_hash로 교차 검토한다. 목차 변경 의견은 메인에, 본문 변경 의견은 원작성자에 반환한다.",
+            "advanced": "기초 항목 뒤에 연결할 심화·비교·한계·실제 사례를 안정 ID로 작성한다. 전체 개념 연결 시나리오는 자신의 concepts와 그림에 근거를 연결해 작성한다. 기술 예시는 body의 코드펜스, 흐름은 Mermaid를 사용한다. get_document_preview로 지정 버전의 HTML과 양쪽 본문을 실제 읽고 토글 안의 코드·표·그림·배치를 검토한다. current=true인 같은 후보의 presentation_hash를 전달한다. 메인의 목차나 상대 본문을 직접 수정하지 않는다.",
+            "notion_writer": "승인 묶음의 composition_version과 plan_hash를 보존한다. 제목·목차·중첩 토글·본문·표·그림·코드·답안을 바꾸지 않는다. 실제 재조회에서는 중첩된 자식을 모두 보존하고 실제 화면에서 토글을 펼쳐 확인한다. 로컬 미리보기나 규격 조회 성공을 Notion 표시 성공으로 보고하지 않는다.",
+        }[role]
+        + "\n[/CS-STUDY TOPIC V3]"
     )
 
 
@@ -108,6 +117,7 @@ def upgrade_presentation_prompt(path: Path, role: str) -> None:
     current = re.sub(
         r"\n?\[CS-STUDY PRESENTATION V2\].*?\[/CS-STUDY PRESENTATION V2\]", "", current, flags=re.S
     ).rstrip()
+    current = re.sub(r"\n?\[CS-STUDY TOPIC V3\].*?\[/CS-STUDY TOPIC V3\]", "", current, flags=re.S).rstrip()
     updated = current + "\n\n" + presentation_instructions(role)
     # Replace just the TOML scalar, retaining all user model settings and comments.
     pattern = r'(?m)^(developer_instructions\s*=\s*)("""[\s\S]*?"""|\x27\x27\x27[\s\S]*?\x27\x27\x27|"(?:\\.|[^"\\])*"|\x27[^\x27]*\x27)'
@@ -202,7 +212,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--upgrade-presentation",
         action="store_true",
-        help="기존 역할의 사용자 지침을 보존하며 v2 문서 지침만 병합",
+        help="기존 역할의 사용자 지침을 보존하며 v2/v3 문서 지침만 병합",
     )
     args = parser.parse_args()
     configure(args.project, args.upgrade_presentation)

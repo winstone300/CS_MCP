@@ -9,6 +9,7 @@ from .models import AdvancedSection, FoundationSection
 from .presentation import document_blueprint, presentation_issues, profile_snapshot
 from .render import digest
 from .storage import dumps, event, now
+from .topic_service import TopicService
 
 
 def fail(code, message):
@@ -23,7 +24,11 @@ def profile_for(job):
 
 
 def is_readable(job):
-    return profile_for(job)["name"] == "study_readable_v2"
+    return profile_for(job)["name"] in {"study_readable_v2", "study_topic_v3"}
+
+
+def is_topic(job):
+    return profile_for(job)["name"] == "study_topic_v3"
 
 
 def atomic_text(path: Path, text: str):
@@ -38,7 +43,7 @@ def atomic_text(path: Path, text: str):
             os.unlink(name)
 
 
-class PresentationService:
+class PresentationService(TopicService):
     def get_document_blueprint(self, job_id, role):
         with self.db.connect() as db:
             profile = profile_for(self._job(db, job_id))
@@ -63,7 +68,7 @@ class PresentationService:
             (job_id, asset["hash"], dumps(asset), now()),
         )
 
-    def _presentation(self, db, job):
+    def _presentation(self, db, job, *, include_preview=True):
         from .assets import verify_asset
 
         profile = profile_for(job)
@@ -125,7 +130,7 @@ class PresentationService:
             "section_hashes": {k: row["content_hash"] if row else None for k, row in rows.items()},
             "assets": [{k: v for k, v in asset.items() if k != "path"} for asset in assets],
         }
-        return {
+        result = {
             **report,
             "valid": not report["errors"],
             "versions": versions,
@@ -133,6 +138,9 @@ class PresentationService:
             "assets": assets,
             "presentation_hash": digest(dumps(manifest)),
         }
+        if is_topic(job) and include_preview:
+            return self._topic_presentation(db, job, result)
+        return result
 
     def validate_presentation(self, job_id):
         with self.db.connect() as db:
@@ -240,7 +248,11 @@ class PresentationService:
                 event(
                     db, job_id, "visual_assets_prepared", {"versions": versions, "hashes": inserted}
                 )
-        report = self.validate_presentation(job_id)
+        with self.db.connect() as db:
+            job = self._job(db, job_id)
+            report = self._presentation(db, job, include_preview=not is_topic(job))
+            if is_topic(job):
+                report["next_step"] = "prepare_document_preview로 전체 배치를 준비한 뒤 교차 검토하세요."
         report["errors"].extend(errors)
         report["valid"] = not report["errors"]
         return report
@@ -266,6 +278,22 @@ class PresentationService:
             or manifest["preview_hash"] != digest(draft["preview_html"])
         ):
             fail("bundle_changed", "승인 대상의 본문·그림·배치가 변경되었습니다.")
+        if is_topic(job):
+            from .models import DraftInput
+
+            candidate = self._preview_row(db, job["id"])
+            rendered = json.loads(candidate["rendered"])
+            plan = json.loads(candidate["plan"])
+            expected_content = {key: plan[key] for key in DraftInput.model_fields}
+            if (json.loads(draft["content"]) != expected_content
+                    or manifest.get("hash_kind") != "presentation_bundle_v3"
+                    or manifest.get("composition_version") != candidate["version"]
+                    or manifest.get("plan_hash") != digest(candidate["plan"])
+                    or any(draft[key] != rendered[value] for key, value in (
+                        ("markdown", "markdown"), ("notion_markdown", "notion_markdown"),
+                        ("preview_html", "html")))
+                    or manifest.get("blocks") != rendered["blocks"]):
+                fail("bundle_changed", "검토한 미리보기와 승인 초안이 다릅니다.")
 
     def validate_publication_bundle(self, job_id):
         with self.db.connect() as db:

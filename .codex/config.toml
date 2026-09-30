@@ -14,7 +14,7 @@ enabled = true
 required = true
 startup_timeout_sec = 30
 tool_timeout_sec = 60
-enabled_tools = ["create_study", "get_document_blueprint", "get_knowledge_section", "get_question_blueprint", "get_runtime_info", "get_study", "list_studies", "prepare_visual_assets", "record_review", "register_visual_asset", "request_research_followup", "save_draft", "validate_knowledge", "validate_presentation"]
+enabled_tools = ["create_study", "get_document_blueprint", "get_document_preview", "get_knowledge_section", "get_question_blueprint", "get_runtime_info", "get_study", "list_studies", "prepare_document_preview", "prepare_visual_assets", "record_review", "register_visual_asset", "request_research_followup", "save_draft", "validate_knowledge", "validate_presentation"]
 [mcp_servers.cs_study.env]
 PYTHONUTF8 = "1"
 

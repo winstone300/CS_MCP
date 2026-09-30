@@ -4,9 +4,10 @@ Codex 메인이 검색·기초·심화·노션 작성 역할의 독립 Codex CLI
 LLM API 키 없이 ChatGPT 로그인 기반 Codex를 사용합니다. Python MCP는 AI 추론을 실행하지 않으며,
 출처·문서 버전·교차 검토·승인·발행 이력을 관리합니다.
 
-새 작업은 `study_readable_v2` 형식을 사용합니다. 핵심 요약을 먼저 보여주고 비교표·설명용 도식·공식
-공개 스크린샷을 관련 본문에 배치하며, 승인용 Markdown과 HTML 미리보기를 함께 만듭니다.
-기존 작업은 `legacy_v1`의 본문·해시·승인·발행 복구 방식을 유지합니다.
+새 작업은 `study_topic_v3` 형식을 사용합니다. 기초·심화의 작성 책임을 유지하면서 주제별 중첩
+토글에 본문을 배치하고, 전체 HTML 미리보기를 양쪽 역할이 검토한 뒤 그 후보를 승인용 초안으로 확정합니다.
+기존 `legacy_v1`과 `study_readable_v2` 작업은 본문·해시·승인·발행 복구 방식을 유지합니다.
+도구 입력, 후보 재개와 검증 순서는 [주제별 문서 v3 운영 안내](docs/topic-v3.md)를 참고하세요.
 **새 형식의 실제 Notion 그림·토글 표시 및 재조회 수용 시험은 아직 완료되지 않았습니다.**
 로컬 구현과 자동 테스트 결과를 실제 Notion 발행 성공으로 해석하지 마세요.
 
@@ -143,8 +144,8 @@ Notion 도구 제한은 Codex 구성의 허용 목록으로 적용합니다. 다
 1. 메인이 create_study로 작업을 만들고 규칙 원문/해시와 문서 프로필을 고정합니다. 각 역할은 get_document_blueprint로 해당 작업의 구성표를 읽습니다.
 2. research가 실제 웹 원문을 읽고 save_research로 발췌·위치를 저장합니다.
 3. foundation이 초기 기초 부분을 저장하면 advanced가 그 버전을 참조해 작성합니다.
-4. 두 역할이 자기 부분을 완성하면 메인이 prepare_visual_assets로 검토용 그림을 준비합니다. 양쪽은 원문과 실제 그림을 교차 검토하고 읽은 presentation_hash를 함께 기록합니다.
-5. 메인이 validate_knowledge와 validate_presentation의 오류를 해결하고 save_draft로 통합 초안과 미리보기를 만듭니다. 권장 분량 경고는 오류와 구분합니다.
+4. 두 역할이 자기 부분을 완성하면 메인이 prepare_visual_assets로 검토용 그림을 준비합니다. v3에서는 제목·요약·참조 목차로 prepare_document_preview를 호출한 뒤 양쪽이 같은 버전의 전체 HTML과 원문을 교차 검토하고 실제 읽은 presentation_hash를 기록합니다. 기존 v2는 저장된 절차를 따릅니다.
+5. 메인이 validate_knowledge와 validate_presentation의 오류를 해결하고 save_draft로 검토한 후보의 preview_version/presentation_hash를 전달해 승인용 초안으로 확정합니다. v1/v2는 기존 DraftInput을 사용합니다. 권장 분량 경고는 오류와 구분합니다.
 6. 전체 초안·그림·검증 결과·발행 대상·버전·hash·bundle_hash를 보여줍니다. 명시적 사용자 답변을 받은 뒤 record_review에 실제 메시지와 그 값을 기록합니다.
 7. writer가 prepare_publication으로 승인된 본문을 받아 Notion MCP로 발행하고 재조회합니다.
 
@@ -153,7 +154,8 @@ Notion 도구 제한은 Codex 구성의 허용 목록으로 적용합니다. 다
 수정되면 현재 통합 초안을 무효화합니다. 교차 검토는 양쪽 버전과 연구 자료 리비전에 연결됩니다.
 상태·이력·이전 초안은 DB에 남습니다.
 record_cross_review에는 검토 당시 읽은 research_revision을 지정합니다. 최신 자료를 다시 확인하지 않고 번호만 갱신하면 안 됩니다.
-새 형식의 presentation_hash는 양쪽 부분 문서와 준비한 실제 자산을 함께 고정합니다.
+v2의 presentation_hash는 양쪽 부분 문서와 준비한 실제 자산을 함께 고정합니다.
+v3는 제목·요약·주제별 목차·조사 자료·전체 렌더링 출력과 후보 버전까지 고정합니다.
 승인에는 Markdown 해시와 별도로 본문·배치·표·도식 정의·자산·출력 형식을 묶은 bundle_hash를 사용합니다.
 관련 항목을 바꾸면 최신 교차 검토·초안·승인을 다시 받아야 합니다.
 
@@ -213,8 +215,8 @@ Markdown 파일은 검토용 내보내기입니다. 파일 직접 수정은 DB/�
 `export`만 다시 실행하세요. 같은 초안을 저장하려고 save_draft를 반복하지 않습니다.
 PC가 꺼졌거나 Codex가 종료된 동안 에이전트는 실행되지 않습니다.
 
-v1 DB를 처음 열 때 일관된 SQLite 백업을 `.cs-study/backups/schema-v1-*/`에 저장하고 v2로
-마이그레이션합니다. 기존 자산 디렉터리가 있으면 함께 백업합니다. 정기 백업·프로젝트 이동에도 DB와
+v1/v2 DB를 처음 열 때 일관된 SQLite 백업을 `.cs-study/backups/schema-v<이전 버전>-*/`에 저장하고
+schema v3로 마이그레이션합니다. 기존 문서 프로필과 행은 보존합니다. 기존 자산 디렉터리가 있으면 함께 백업합니다. 정기 백업·프로젝트 이동에도 DB와
 `.cs-study/assets/`를 함께 보존하세요. 열린 SQLite 파일만 복사하는 방법은 사용하지 않습니다.
 
 ## 검사와 테스트

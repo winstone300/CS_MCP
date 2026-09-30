@@ -204,6 +204,32 @@ class DraftInput(Model):
     summary: list[SummaryPoint] = Field(min_length=1)
 
 
+class OutlineItemRef(Model):
+    type: Literal["item"] = "item"
+    section: SectionKind
+    item_id: Identifier
+
+
+class OutlineGroup(Model):
+    type: Literal["group"] = "group"
+    id: Identifier
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, pattern=r"^[^\r\n<>]+$")]
+    display: Literal["heading", "toggle"] = "toggle"
+    children: list[Annotated["OutlineGroup | OutlineItemRef", Field(discriminator="type")]] = Field(min_length=1)
+
+
+class DocumentPlanInput(DraftInput):
+    """A v3 composition; never add fields to historical section/draft serialization."""
+
+    research_revision: int = Field(ge=0)
+    outline: list[Annotated[OutlineGroup | OutlineItemRef, Field(discriminator="type")]] = Field(min_length=1)
+
+
+class PreviewReference(Model):
+    preview_version: int = Field(ge=1)
+    presentation_hash: Text
+
+
 class ReviewInput(Model):
     draft_version: int = Field(ge=1)
     draft_hash: Text
