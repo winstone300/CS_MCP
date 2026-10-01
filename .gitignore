@@ -1,0 +1,14 @@
+.venv/
+.cs-study/
+study.local.toml
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+.env
+*.sqlite*
+*.log
+node_modules/

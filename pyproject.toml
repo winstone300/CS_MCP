@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cs-study-mcp"
+version = "0.1.0"
+description = "Local, API-key-free study workflow tools for Codex and Notion MCP"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["mcp>=1.30,<2", "pydantic>=2.13,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=9,<10", "pytest-asyncio>=1.4,<2", "ruff>=0.16,<0.17", "build>=1.6,<2"]
+
+[project.scripts]
+cs-study = "cs_study_mcp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
