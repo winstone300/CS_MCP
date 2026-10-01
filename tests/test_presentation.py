@@ -14,6 +14,39 @@ from cs_study_mcp.render import render_document
 from cs_study_mcp.render_v2 import render_readable
 
 
+def historical_profile():
+    """Frozen pre-Markdown profiles still serialize their original HTML for hashing."""
+    profile = profile_snapshot()
+    profile.pop("review_format")
+    profile.pop("citation_style")
+    return profile
+
+
+def test_markdown_review_links_local_assets_without_rendering_html(tmp_path, monkeypatch):
+    def unexpected_html(*args):
+        pytest.fail("New Markdown reviews must not render HTML")
+
+    monkeypatch.setattr("cs_study_mcp.render_v2._html_document", unexpected_html)
+    foundation, advanced = readable_sections()
+    foundation.visuals = [diagram()]
+    profile = profile_snapshot()
+    profile["diagram_transport"] = "image"
+    path = tmp_path / "diagram with spaces.png"
+    path.write_bytes(b"synthetic image")
+    rendered = render_readable(
+        draft_input(), foundation, advanced, {"S1": sample_source()}, profile,
+        [{"section": "foundation", "visual_id": "overview", "hash": "a" * 64,
+          "path": str(path)}],
+    )
+    assert rendered["html"] == ""
+    assert path.as_uri() in rendered["markdown"]
+    assert foundation.visuals[0].alt_text in rendered["markdown"]
+    assert foundation.visuals[0].caption in rendered["markdown"]
+    assert "asset://" not in rendered["markdown"]
+    assert "asset://" + "a" * 64 in rendered["notion_markdown"]
+    assert path.as_uri() not in rendered["notion_markdown"]
+
+
 def readable_sections():
     foundation, advanced = sample_sections()
     for section in (foundation, advanced):
@@ -113,7 +146,7 @@ def test_summary_and_overview_precede_body_and_numeric_citations_replace_ids(tmp
         foundation,
         advanced,
         {"S1": sample_source()},
-        profile_snapshot(),
+        historical_profile(),
         [
             {
                 "section": "foundation",
@@ -141,7 +174,7 @@ def test_summary_and_overview_precede_body_and_numeric_citations_replace_ids(tmp
         foundation,
         advanced,
         {"S1": sample_source()},
-        profile_snapshot(),
+        historical_profile(),
         [
             {
                 "section": "foundation",
@@ -186,7 +219,7 @@ def test_tables_escape_separators_and_preserve_newlines_and_row_citations():
         )
     ]
     rendered = render_readable(
-        draft_input(), foundation, advanced, {"S1": sample_source()}, profile_snapshot(), []
+        draft_input(), foundation, advanced, {"S1": sample_source()}, historical_profile(), []
     )
     table = next(block for block in rendered["blocks"] if block["type"] == "table")
     assert len(table["rows"][0]) == 2
@@ -248,7 +281,7 @@ def test_questions_have_separate_markdown_answers_and_preserved_notion_toggles()
 def test_image_transport_uses_approved_hash_and_retains_caption(tmp_path):
     foundation, advanced = readable_sections()
     foundation.visuals = [diagram()]
-    profile = deepcopy(profile_snapshot())
+    profile = deepcopy(historical_profile())
     profile["diagram_transport"] = "image"
     with pytest.raises(ValueError, match="승인용 자산"):
         render_readable(draft_input(), foundation, advanced, {"S1": sample_source()}, profile, [])
@@ -281,7 +314,7 @@ def test_preview_keeps_diagram_labels_readable_with_keyboard_scroll_and_original
     asset = tmp_path / "diagram.png"
     asset.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR" + (1232).to_bytes(4, "big") + (800).to_bytes(4, "big"))
     rendered = render_readable(
-        draft_input(), foundation, advanced, {"S1": sample_source()}, profile_snapshot(),
+        draft_input(), foundation, advanced, {"S1": sample_source()}, historical_profile(),
         [{"section": "foundation", "visual_id": "overview", "hash": "a" * 64, "path": str(asset)}],
     )
     html = rendered["html"]
@@ -309,7 +342,7 @@ def test_screenshot_requires_provenance_and_preserves_version_and_usage_note(tmp
     foundation, advanced = readable_sections()
     screenshot = diagram().model_copy(update={"kind": "screenshot", "diagram_spec": None})
     foundation.visuals = [screenshot]
-    result = presentation_issues(foundation, advanced, {"S1": sample_source()}, profile_snapshot())
+    result = presentation_issues(foundation, advanced, {"S1": sample_source()}, historical_profile())
     assert "missing_screenshot_asset" in {issue["code"] for issue in result["errors"]}
     screenshot.asset_hash = "b" * 64
     screenshot.screenshot = ScreenshotSource(
@@ -322,14 +355,14 @@ def test_screenshot_requires_provenance_and_preserves_version_and_usage_note(tmp
     )
     path = tmp_path / "screenshot.png"
     path.write_bytes(b"fixture")
-    result = presentation_issues(foundation, advanced, {"S1": sample_source()}, profile_snapshot())
+    result = presentation_issues(foundation, advanced, {"S1": sample_source()}, historical_profile())
     assert result["errors"] == []
     rendered = render_readable(
         draft_input(),
         foundation,
         advanced,
         {"S1": sample_source()},
-        profile_snapshot(),
+        historical_profile(),
         [
             {
                 "section": "foundation",

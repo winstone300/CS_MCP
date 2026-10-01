@@ -187,8 +187,11 @@ class PresentationService(TopicService):
                         raise ValueError("등록된 스크린샷 자산이 필요합니다.")
                     asset = dict(imported)
                     asset["spec_hash"] = digest(dumps(visual.model_dump(mode="json")))
-                    asset["renderer_fingerprint"] = "original-public-screenshot"
-                    if visual.screenshot:
+                    direct = visual.screenshot and visual.screenshot.capture_method == "direct_capture"
+                    asset["renderer_fingerprint"] = (
+                        "direct-capture" if direct else "original-public-screenshot"
+                    )
+                    if visual.screenshot and visual.screenshot.image_url:
                         asset["remote_url"] = str(visual.screenshot.image_url)
                 else:
                     if not visual.diagram_spec:
@@ -376,8 +379,3 @@ class PresentationService(TopicService):
                 (job_id,),
             )
         ]
-
-    def _export_preview(self, job_id, version, html):
-        path = self.db.directory / "drafts" / job_id / f"v{version}.html"
-        atomic_text(path, html)
-        return path

@@ -182,11 +182,11 @@ def create_server(root: Path, role: Role = "main") -> FastMCP:
         return service.record_cross_review(job_id, review)
 
     def prepare_document_preview(job_id: str, content: DocumentPlanInput, expected_version: int) -> dict[str, Any]:
-        """메인 전용 v3 전체 미리보기. 제목·요약·목차·본문·자산을 교차 검토 전에 고정합니다. 최초 버전은 0. 저장은 사용자 승인이나 발행이 아닙니다."""
+        """메인 전용 v3 전체 Markdown 미리보기. 제목·요약·목차·본문·자산을 교차 검토 전에 고정합니다. 최초 버전은 0. 저장은 사용자 승인이나 발행이 아닙니다."""
         return service.prepare_document_preview(job_id, content, expected_version)
 
     def get_document_preview(job_id: str, version: int | None = None) -> dict[str, Any]:
-        """실제 읽을 v3 미리보기 버전·본문·경로·해시와 최신 의존성 일치 여부를 조회합니다."""
+        """실제 읽을 v3 Markdown 미리보기 버전·본문·경로·해시와 최신 의존성 일치 여부를 조회합니다."""
         return service.get_document_preview(job_id, version)
 
     def save_draft(job_id: str, content: DraftInput | PreviewReference) -> dict[str, Any]:

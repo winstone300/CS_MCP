@@ -80,6 +80,54 @@ def test_code_and_list_indentation_are_preserved():
     assert canonicalize_markdown("## C#")[0]["text"] == "C#"
 
 
+def test_notion_plain_text_alias_preserves_nested_code_readback():
+    approved = (
+        "<details>\n<summary>주제</summary>\n"
+        "\t<details>\n\t<summary>의사코드</summary>\n"
+        "\t\t```text\n\t\tif ready:\n\t\t    run()\n\t\t```\n"
+        "\t</details>\n</details>"
+    )
+    expected = canonicalize_markdown(approved)
+    observed = approved.replace("```text", "```plain text")
+    result = verify_readback(expected, observed)
+    assert result["valid"]
+    assert result["observed_hash"] == verify_readback(expected, approved)["observed_hash"]
+    assert not verify_readback(expected, observed.replace("run()", "stop()"))["valid"]
+    assert not verify_readback(expected, observed.replace("    run()", "run()"))["valid"]
+    assert not verify_readback(expected, observed.replace("plain text", "python"))["valid"]
+
+
+def test_plain_text_alias_does_not_hide_mermaid_language_changes():
+    approved = "```mermaid\nflowchart LR\nA-->B\n```"
+    assert not verify_readback(
+        canonicalize_markdown(approved), approved.replace("mermaid", "plain text")
+    )["valid"]
+
+
+def test_notion_nested_raw_code_and_table_payloads_preserve_contents():
+    approved = (
+        '<details>\n<summary>주제</summary>\n\t<details>\n\t<summary>내용</summary>\n'
+        '\t\t```text\n\t\tif ready:\n\t\t    run()\n\t\t```\n'
+        '\t\t<table header-row="true">\n\t\t\t<tr>\n'
+        '\t\t\t\t<td>키</td>\n\t\t\t</tr>\n\t\t\t<tr>\n'
+        '\t\t\t\t<td>값</td>\n\t\t\t</tr>\n\t\t</table>\n'
+        '\t</details>\n</details>'
+    )
+    observed = approved.replace(
+        '\t\t```text\n\t\tif ready:\n\t\t    run()',
+        '\t\t```plain text\nif ready:\n    run()',
+    ).replace('\t\t\t\t<td>', '<td>').replace('\t\t\t<tr>', '<tr>').replace(
+        '\t\t\t</tr>', '</tr>',
+    )
+    expected = canonicalize_markdown(approved)
+    assert verify_readback(expected, observed)["valid"]
+    assert not verify_readback(expected, observed.replace('    run()', 'run()'))["valid"]
+    assert not verify_readback(expected, observed.replace('    run()', '\trun()'))["valid"]
+    assert not verify_readback(expected, observed.replace('\t\t```\n', '\t\t```\n빠진 구조 탭\n'))["valid"]
+    assert not verify_readback(expected, observed.replace('<td>값</td>', '<td>변경</td>'))["valid"]
+    assert not verify_readback(expected, observed.replace('<tr>\n<td>값</td>\n</tr>', ''))["valid"]
+
+
 def test_signed_image_urls_require_bytes_or_persisted_receipt():
     asset_hash = "a" * 64
     expected = canonicalize_markdown(f"![공식 화면](asset://{asset_hash})\n\n확인된 화면의 설명")

@@ -61,7 +61,6 @@ def main():
     directory = root / ".cs-study" / "previews" / "topic-v3-demo"
     directory.mkdir(parents=True, exist_ok=True)
     for key, name in (
-        ("html", "index.html"),
         ("markdown", "document.md"),
         ("notion_markdown", "notion.md"),
     ):
@@ -70,7 +69,7 @@ def main():
         json.dumps({"synthetic": True, "assets": assets}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(directory / "index.html")
+    print(directory / "document.md")
 
 
 if __name__ == "__main__":

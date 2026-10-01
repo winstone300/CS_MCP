@@ -2,7 +2,16 @@
 
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, StringConstraints
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    StringConstraints,
+    model_serializer,
+    model_validator,
+)
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")]
@@ -122,11 +131,44 @@ class ComparisonTable(Model):
 
 class ScreenshotSource(Model):
     source_id: Identifier
-    image_url: HttpUrl = Field(description="공식 공개 이미지의 원본 URL")
+    image_url: HttpUrl | None = Field(default=None, description="공개 이미지의 원본 URL. 직접 캡처는 생략")
     locator: Text = Field(description="원문 내 이미지 위치")
     accessed_at: AwareDatetime
     product_version: Text | None = None
     usage_note: Text = Field(description="인용·재사용 조건과 확인한 근거")
+    capture_method: Literal["public_image", "direct_capture"] = "public_image"
+    capture_url: HttpUrl | None = Field(default=None, description="직접 캡처한 웹 화면의 URL")
+    capture_target: Text | None = Field(default=None, description="실습 앱·화면·실행 명령 등 재현 가능한 캡처 대상")
+    captured_at: AwareDatetime | None = None
+    capture_environment: Text | None = Field(default=None, description="브라우저·OS·제품 버전 또는 실습 실행 환경")
+
+    @model_validator(mode="after")
+    def check_provenance(self):
+        if self.capture_method == "public_image":
+            if self.image_url is None:
+                raise ValueError("공개 이미지에는 원본 image_url이 필요합니다.")
+            if any(value is not None for value in (
+                self.capture_url, self.capture_target, self.captured_at, self.capture_environment,
+            )):
+                raise ValueError("직접 캡처 정보에는 capture_method=direct_capture를 사용하세요.")
+        else:
+            if self.image_url is not None:
+                raise ValueError("직접 캡처는 image_url 대신 캡처 대상과 승인 자산 업로드를 사용합니다.")
+            if (not (self.capture_url or self.capture_target)
+                    or self.captured_at is None or not self.capture_environment):
+                raise ValueError("직접 캡처에는 대상·captured_at·capture_environment가 필요합니다.")
+        return self
+
+    @model_serializer(mode="wrap")
+    def preserve_public_image_serialization(self, handler):
+        data = handler(self)
+        # Added defaults must not change existing screenshot spec hashes or approvals.
+        if self.capture_method == "public_image":
+            for key in (
+                "capture_method", "capture_url", "capture_target", "captured_at", "capture_environment",
+            ):
+                data.pop(key, None)
+        return data
 
 
 class Visual(Model):
@@ -255,6 +297,8 @@ class PublicationInput(Model):
         default_factory=list, description="실제 재조회한 자산 식별·해시 근거"
     )
     observed_visual_check: bool = Field(
-        default=False, description="writer가 실제 페이지 화면에서 도식·표·접힌 답안을 확인했는지"
+        default=False,
+        deprecated=True,
+        description="이전 클라이언트 호환용 필드. 값은 완료 판정에 사용하지 않으며 화면 확인은 요구하지 않습니다.",
     )
     error: str | None = None

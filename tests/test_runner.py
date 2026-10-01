@@ -270,6 +270,12 @@ def test_presentation_prompt_upgrade_preserves_custom_settings_and_is_idempotent
     assert upgraded["developer_instructions"].count("[CS-STUDY PRESENTATION V2]") == 1
     assert upgraded["developer_instructions"].count("[CS-STUDY TOPIC V3]") == 1
     assert "legacy_v1" in upgraded["developer_instructions"]
+    if role in {"foundation", "advanced"}:
+        assert "Markdown" in upgraded["developer_instructions"]
+        assert "HTML 파일 생성이나 브라우저 화면 검증은 요구하지 않는다" in upgraded["developer_instructions"]
+    if role == "notion_writer":
+        assert "Notion 화면 검증은 요구하지 않는다" in upgraded["developer_instructions"]
+        assert "observed_visual_check=true" not in upgraded["developer_instructions"]
     assert upgraded["model"] == "custom-model"
     assert upgraded["model_reasoning_effort"] == "high"
     assert "# 사용자 주석" in first

@@ -5,10 +5,10 @@ LLM API 키 없이 ChatGPT 로그인 기반 Codex를 사용합니다. Python MCP
 출처·문서 버전·교차 검토·승인·발행 이력을 관리합니다.
 
 새 작업은 `study_topic_v3` 형식을 사용합니다. 기초·심화의 작성 책임을 유지하면서 주제별 중첩
-토글에 본문을 배치하고, 전체 HTML 미리보기를 양쪽 역할이 검토한 뒤 그 후보를 승인용 초안으로 확정합니다.
+토글에 본문을 배치하고, 전체 Markdown 미리보기를 양쪽 역할이 검토한 뒤 그 후보를 승인용 초안으로 확정합니다.
 기존 `legacy_v1`과 `study_readable_v2` 작업은 본문·해시·승인·발행 복구 방식을 유지합니다.
 도구 입력, 후보 재개와 검증 순서는 [주제별 문서 v3 운영 안내](docs/topic-v3.md)를 참고하세요.
-**새 형식의 실제 Notion 그림·토글 표시 및 재조회 수용 시험은 아직 완료되지 않았습니다.**
+**새 형식의 실제 Notion 전체 본문·자산 재조회 수용 시험은 아직 완료되지 않았습니다.**
 로컬 구현과 자동 테스트 결과를 실제 Notion 발행 성공으로 해석하지 마세요.
 
 ## 빠른 시작 (Windows / PowerShell)
@@ -111,7 +111,7 @@ AGENTS.md를 다시 읽고, 승인한 독립 Codex CLI(run-role) 방식으로
 | .codex/agents/advanced.toml | 심화 동작·트레이드오프·실제 사례, 기초 교차 검토 |
 | .codex/agents/notion_writer.toml | 승인된 초안 발행·재조회 |
 | src/cs_study_mcp | Pydantic 모델, SQLite 트랜잭션, 검증·렌더링, 역할별 MCP, CLI 실행기 |
-| .cs-study/ | 로컬 DB, 불변 이미지 자산, Markdown·HTML 미리보기, 마이그레이션 백업 (Git 제외) |
+| .cs-study/ | 로컬 DB, 불변 이미지 자산, Markdown 미리보기, 마이그레이션 백업 (Git 제외) |
 
 메인은 Codex가 실행합니다. MCP 서버가 메인을 실행하거나 Codex 인증 토큰으로 모델 API를 직접 호출하지 않습니다.
 자료 수집은 Codex 내장 웹 검색이며, 별도 검색 API·임베딩·내부 노션/파일 검색은 없습니다.
@@ -144,7 +144,7 @@ Notion 도구 제한은 Codex 구성의 허용 목록으로 적용합니다. 다
 1. 메인이 create_study로 작업을 만들고 규칙 원문/해시와 문서 프로필을 고정합니다. 각 역할은 get_document_blueprint로 해당 작업의 구성표를 읽습니다.
 2. research가 실제 웹 원문을 읽고 save_research로 발췌·위치를 저장합니다.
 3. foundation이 초기 기초 부분을 저장하면 advanced가 그 버전을 참조해 작성합니다.
-4. 두 역할이 자기 부분을 완성하면 메인이 prepare_visual_assets로 검토용 그림을 준비합니다. v3에서는 제목·요약·참조 목차로 prepare_document_preview를 호출한 뒤 양쪽이 같은 버전의 전체 HTML과 원문을 교차 검토하고 실제 읽은 presentation_hash를 기록합니다. 기존 v2는 저장된 절차를 따릅니다.
+4. 두 역할이 자기 부분을 완성하면 메인이 prepare_visual_assets로 검토용 그림을 준비합니다. v3에서는 제목·요약·참조 목차로 prepare_document_preview를 호출한 뒤 양쪽이 같은 버전의 전체 Markdown과 원문을 교차 검토하고 실제 읽은 presentation_hash를 기록합니다. 기존 v2는 저장된 절차를 따릅니다.
 5. 메인이 validate_knowledge와 validate_presentation의 오류를 해결하고 save_draft로 검토한 후보의 preview_version/presentation_hash를 전달해 승인용 초안으로 확정합니다. v1/v2는 기존 DraftInput을 사용합니다. 권장 분량 경고는 오류와 구분합니다.
 6. 전체 초안·그림·검증 결과·발행 대상·버전·hash·bundle_hash를 보여줍니다. 명시적 사용자 답변을 받은 뒤 record_review에 실제 메시지와 그 값을 기록합니다.
 7. writer가 prepare_publication으로 승인된 본문을 받아 Notion MCP로 발행하고 재조회합니다.
@@ -194,8 +194,8 @@ observed_title·observed_parent_page_id·observed_markdown으로 전달합니다
 기존 형식은 줄바꿈·빈 블록 등 제한된 표현 차이만 정규화하고 본문·제목·상위 페이지를 비교합니다.
 새 형식은 블록 순서, 표의 셀, 토글 내부 답안, Mermaid 정의, 이미지와 캡션을 보존해 비교합니다.
 이미지는 실제 자산 해시 또는 기록된 업로드 영수증과 재조회한 안정 참조를 대조합니다.
-writer는 실제 화면까지 확인한 경우에만 observed_visual_check=true로 기록합니다.
-도구가 필요한 표시·업로드·재조회 증거를 제공하지 못하면 완료 처리하지 않습니다.
+Notion 브라우저 화면 검증은 요구하지 않습니다. 실제 재조회한 제목·상위 페이지·본문 구조·자산이 일치하면 완료 처리합니다.
+업로드·재조회 증거가 부족하거나 내용이 다르면 완료 처리하지 않습니다.
 Notion이 다른 표현으로 변환하면 보수적으로 needs_attention이 될 수 있습니다.
 코드의 들여쓰기와 내용은 유지하며, 내용 불일치를 무시하고 성공 처리하지 않습니다.
 이미 발행이 시작된 작업은 이후 기본 대상 설정을 바꿔도 발행 이력에 고정된 대상으로 복구합니다.
@@ -211,7 +211,8 @@ Notion이 다른 표현으로 변환하면 보수적으로 needs_attention이 �
 Codex에서 "작업 <job_id>를 저장된 규칙과 산출물로 재개해줘"라고 요청하세요.
 Markdown 파일은 검토용 내보내기입니다. 파일 직접 수정은 DB/승인에 반영되지 않으며,
 수정 의견을 담당 에이전트에 전달해 새 버전을 만들어야 합니다.
-새 형식의 HTML도 같은 저장된 초안에서 내보냅니다. 내보내기 실패 시 초안 저장 결과의 export_error를 확인하고
+검토 파일은 Markdown으로만 내보냅니다. 기존 HTML 데이터·규칙 스냅샷·승인 해시는 보존하며, 기존 작업에도 화면 확인을 요구하지 않습니다.
+내보내기 실패 시 초안 저장 결과의 export_error를 확인하고
 `export`만 다시 실행하세요. 같은 초안을 저장하려고 save_draft를 반복하지 않습니다.
 PC가 꺼졌거나 Codex가 종료된 동안 에이전트는 실행되지 않습니다.
 

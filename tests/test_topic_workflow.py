@@ -80,14 +80,58 @@ def promote(service, job_id, preview):
     )
 
 
+def test_existing_page_plain_text_readback_keeps_approved_bundle(service):
+    actual = StudyService(service.root)
+    job_id = actual.create_study("합성 코드 언어 재조회 시험")["job_id"]
+    actual.save_research(job_id, [sample_source()])
+    f, a = readable_sections()
+    f.principles[0].body = "의사코드 예시입니다.\n\n```text\nif ready:\n    run()\n```"
+    actual.save_knowledge_section(job_id, f, 0)
+    actual.save_knowledge_section(job_id, a, 0)
+    preview = actual.prepare_document_preview(job_id, make_plan(f, a), 0)
+    review(actual, job_id, preview)
+    draft = promote(actual, job_id, preview)
+    approve_v2(actual, job_id, draft)
+    approved = actual.get_study(job_id)
+    intent = actual.prepare_publication(job_id, draft["version"])
+    actual.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="page_created", page_id=PAGE_ID,
+    ))
+    actual.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="uncertain", page_id=PAGE_ID,
+        error="합성 언어 별칭 재조회 불일치",
+    ))
+    resumed = actual.prepare_publication(job_id, draft["version"])
+    assert resumed["action"] == "resume_existing_page"
+    assert resumed["page_id"] == PAGE_ID
+    assert resumed["attempt_id"] == intent["attempt_id"]
+    observed = intent["markdown"].replace("```text", "```plain text").replace(
+        "\tif ready:\n\t    run()", "if ready:\n    run()",
+    )
+    assert observed != intent["markdown"]
+    result = actual.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="verified", page_id=PAGE_ID,
+        observed_title=intent["title"], observed_parent_page_id=PARENT_ID,
+        observed_markdown=observed,
+    ))
+    assert result["status"] == "completed"
+    completed = actual.get_study(job_id)
+    assert completed["draft"] == approved["draft"]
+    assert completed["reviews"] == approved["reviews"]
+    assert actual.prepare_publication(job_id, draft["version"])["action"] == "already_completed"
+
+
 def test_preview_before_review_and_exact_candidate_promotion(topic):
     service, job_id, plan = topic
     assert service.get_study(job_id)["presentation_profile"]["name"] == "study_topic_v3"
     p = service.prepare_document_preview(job_id, plan, 0)
     assert p["current"] and p["version"] == 1
     assert service.get_study(job_id)["draft"] is None
-    html = Path(p["paths"]["html"]).read_text(encoding="utf-8")
-    assert "<details>" in html and "<table" in html and "GET /example" in html
+    assert set(p["paths"]) == {"markdown", "notion_markdown"}
+    markdown = Path(p["paths"]["markdown"]).read_text(encoding="utf-8")
+    assert "<details>" in markdown and "| 조건 | 결과 |" in markdown
+    assert "```http" in markdown and "GET /example" in markdown
+    assert not list(service.db.directory.rglob("*.html"))
     assert '\t<table header-row="true">' in p["notion_markdown"]
     with pytest.raises(WorkflowError, match="cross_review_required"):
         promote(service, job_id, p)
@@ -99,7 +143,9 @@ def test_preview_before_review_and_exact_candidate_promotion(topic):
     actual = service.get_study(job_id)["draft"]
     assert actual["markdown"] == p["markdown"]
     assert actual["notion_markdown"] == p["notion_markdown"]
-    assert actual["preview_html"] == html
+    assert actual["preview_html"] == ""
+    assert Path(draft["preview_path"]).suffix == ".md"
+    assert not list(service.db.directory.rglob("*.html"))
     approve_v2(service, job_id, draft)
     assert service.prepare_publication(job_id, draft["version"])["action"] == "create_page"
     with pytest.raises(WorkflowError, match="publication_locked"):
@@ -136,13 +182,14 @@ def test_presentation_only_changes_invalidate_reviews_and_approval(topic, change
     promote(service, job_id, updated)
 
 
-def test_same_candidate_preserves_approval_and_repairs_export(topic):
+@pytest.mark.parametrize("format", ["markdown", "notion_markdown"])
+def test_same_candidate_preserves_approval_and_repairs_export(topic, format):
     service, job_id, plan = topic
     p = service.prepare_document_preview(job_id, plan, 0)
     review(service, job_id, p)
     draft = promote(service, job_id, p)
     approve_v2(service, job_id, draft)
-    Path(p["paths"]["html"]).write_text("modified", encoding="utf-8")
+    Path(p["paths"][format]).write_text("modified", encoding="utf-8")
     assert not service.validate_presentation(job_id)["valid"]
     with pytest.raises(WorkflowError):
         service.validate_publication_bundle(job_id)
@@ -278,7 +325,6 @@ def test_v3_synthetic_publication_roundtrip_preserves_nested_blocks(topic):
             observed_title=plan.title,
             observed_parent_page_id=PARENT_ID,
             observed_markdown=intent["markdown"],
-            observed_visual_check=True,
         ),
     )  # Synthetic observation, never a live Notion claim.
     assert response["status"] == "completed"
@@ -297,6 +343,42 @@ def test_restart_and_optimistic_version_conflict(topic):
     changed.research_revision = 0
     with pytest.raises(WorkflowError, match="stale_preview"):
         restarted.prepare_document_preview(job_id, changed, 1)
+
+
+def test_historical_html_bundle_preserves_hashes_and_approval_without_html_files(topic, monkeypatch):
+    service, job_id, plan = topic
+    # Simulate a frozen profile created before Markdown-only review.
+    profile = service.get_study(job_id)["presentation_profile"]
+    profile.pop("review_format")
+    with service.db.connect(write=True) as db:
+        db.execute("UPDATE jobs SET presentation_profile=? WHERE id=?", (dumps(profile), job_id))
+    preview = service.prepare_document_preview(job_id, plan, 0)
+    review(service, job_id, preview)
+    draft = promote(service, job_id, preview)
+    approve_v2(service, job_id, draft)
+    before = service.get_study(job_id)
+    assert before["draft"]["preview_html"]
+    assert not list(service.db.directory.rglob("*.html"))
+
+    def unexpected_render(*args):
+        pytest.fail("A cached approved candidate must not be rendered again")
+
+    monkeypatch.setattr("cs_study_mcp.render_v3.render_topic", unexpected_render)
+    restarted = StudyService(service.root)
+    repaired = restarted.prepare_document_preview(job_id, plan, 1)
+    assert repaired["presentation_hash"] == preview["presentation_hash"]
+    assert repaired["current"] and repaired["idempotent"]
+    assert restarted.export_draft(job_id).suffix == ".md"
+    assert not list(service.db.directory.rglob("*.html"))
+    assert restarted.get_study(job_id) == before
+    restarted.validate_publication_bundle(job_id)
+    intent = restarted.prepare_publication(job_id, draft["version"])
+    result = restarted.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="verified", page_id=PAGE_ID,
+        observed_title=intent["title"], observed_parent_page_id=PARENT_ID,
+        observed_markdown=intent["markdown"],
+    ))
+    assert result["status"] == "completed"
 
 
 def test_changed_stored_draft_title_cannot_bypass_reviewed_candidate(topic):

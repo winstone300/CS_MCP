@@ -17,6 +17,12 @@
 오해·표·그림은 기존 related_item_id/placement를 따라 자동 이동한다. overview 자료는 상단,
 질문과 출처는 하단이다. 서로 다른 역할은 같은 item_id를 써도 구분된다.
 
+새 작업에서 이미지가 이해에 도움이 되면 관련 본문에 실제 이미지를 첨부한다. 공식 공개 이미지를
+우선하고 부족하면 메인이 공개 웹·재현 가능한 실습 화면을 캡처해 프로젝트 내부에 저장·등록한다.
+본문·요약·표·답안·그림 설명에는 출처를 표기하지 않고 마지막 참고 문헌에 사이트·문헌·이미지 근거와
+캡처 상세를 모은다. 내부 claim_ids/source_ids 연결은 유지한다. 저장된 프로필의 `citation_style`이
+`references_only`인 새 작업부터 적용하며, 기존 작업의 본문·규칙·검토·승인은 변경하지 않는다.
+
 ## 준비 → 검토 → 초안
 
 1. 기존 방식으로 조사·기초·심화 작성과 원문 검증을 수행한다. `run-role` CLI와 최대 3개 슬롯을 유지한다.
@@ -26,8 +32,8 @@
    research_revision과 outline을 더한다. expected_version은 최초 0, 이후 실제 읽은 후보 버전이다.
 4. 반환된 version/presentation_hash/content/paths와 `current=true`를 확인한다. 준비 도구는
    교차 검토나 사용자 승인을 요구하지 않고, 승인·발행도 수행하지 않는다.
-5. 양쪽 검토자는 `get_document_preview(job_id, version)`으로 같은 버전을 읽고 실제 HTML의
-   토글을 펼쳐 코드·표·그림·캡션·배치를 확인한다. 원문과 함께 검토한 presentation_hash 및
+5. 양쪽 검토자는 `get_document_preview(job_id, version)`으로 같은 버전의 Markdown을 읽고
+   중첩 토글 자식·코드·표·도식·캡션·연결된 그림·순서를 확인한다. 원문과 함께 검토한 presentation_hash 및
    실제 읽은 본문 버전·research_revision으로 `record_cross_review`한다.
 6. 메인은 다음 형태로 검토한 후보만 승격한다. 새로운 제목·요약·목차를 동시에 제출하지 않는다.
 
@@ -55,13 +61,16 @@ export_error가 반환되면 DB 후보는 이미 저장된 상태이므로 반�
 ## 저장과 호환성
 
 SQLite schema v3의 `document_previews`에 구성안·의존성·출력·해시를 불변 버전으로 저장한다.
-미리보기 파일은 `.cs-study/previews/<job_id>/vN.{html,md,notion.md}`다.
+미리보기 파일은 `.cs-study/previews/<job_id>/vN.md`와 `vN.notion.md`다.
+새 프로필은 `review_format=markdown`을 고정하며 HTML을 렌더링하지 않는다. 과거 프로필의 저장 HTML은
+기존 해시 검사용 데이터로만 보존하고, 내보내기와 검토 파일 무결성 검사는 두 Markdown 파일을 대상으로 한다.
 렌더링은 쓰기 잠금 밖에서 수행하고, 저장 직전에 본문·조사·자산·후보 버전을 다시 확인한다.
 후보 해시는 제목·요약·목차·본문·자료·자산·출력에 연결되며 v3 승인 묶음은
 `presentation_bundle_v3`와 composition_version/plan_hash를 포함한다.
 
 기존 v1/v2 프로필·문서 직렬화·해시 계산은 변경하지 않는다. v1/v2→schema v3 전환은 SQLite backup
-API와 자산 복사로 복구본을 만들고 기존 행을 재작성하지 않는다. 현재 작업에 새로운 규칙을 소급하지 않는다.
+API와 자산 복사로 복구본을 만들고 기존 행을 재작성하지 않는다. 기존 규칙 스냅샷·출력·해시·승인은 재작성하지 않는다. 사용자가 요청한 검토 방식 변경에 따라
+기존 작업도 Markdown만 내보내고 HTML 파일이나 Notion 화면 확인은 요구하지 않는다.
 명시적으로 `presentation_profile="study_readable_v2"` 또는 `"legacy_v1"`을 선택한 작업도 지원한다.
 
 ## 검증과 실제 Notion
@@ -69,7 +78,8 @@ API와 자산 복사로 복구본을 만들고 기존 행을 재작성하지 않
 로컬 자동 테스트는 합성 자료와 모의 승인·발행 응답만 사용한다. HTTP Request 미리보기는 개발용
 표현 샘플이며 검증된 학습 문서나 Notion 발행 결과가 아니다.
 프로젝트 루트에서 `.venv/Scripts/python.exe tests/topic_demo.py`를 실행하면
-`.cs-study/previews/topic-v3-demo/index.html`과 Markdown 샘플을 다시 만들 수 있다.
-실계정 수용 시험은 구체적인 초안·대상을 제시해 승인받은 후 진행한다. 중첩 토글 안의 표·코드·그림을
-실제 화면에서 확인하고, 재조회한 전체 자식과 자산을 비교한 뒤에만 completed로 기록한다.
+`.cs-study/previews/topic-v3-demo/document.md`와 `notion.md` 샘플을 다시 만들 수 있다.
+실계정 수용 시험은 구체적인 초안·대상을 제시해 승인받은 후 진행한다. 제목·상위 페이지와
+재조회한 전체 본문(중첩 토글 자식·표·코드·도식·캡션) 및 자산이 일치한 경우에만 completed로 기록한다.
+Notion 브라우저 화면 검증은 요구하지 않는다.
 기존 생성 결과 불명확 시 중단·단일 페이지 복구·고정 발행 대상 규칙은 그대로 적용한다.

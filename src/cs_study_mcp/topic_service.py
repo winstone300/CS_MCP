@@ -51,7 +51,6 @@ class TopicService:
     def _preview_paths(self, job_id, version):
         directory = self.db.directory / "previews" / job_id
         return {
-            "html": directory / f"v{version}.html",
             "markdown": directory / f"v{version}.md",
             "notion_markdown": directory / f"v{version}.notion.md",
         }

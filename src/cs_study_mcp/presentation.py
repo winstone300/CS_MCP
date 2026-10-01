@@ -17,7 +17,7 @@ def profile_snapshot(name: str = "study_readable_v2") -> dict:
             order=["핵심 요약·대표 그림", "목표·선수지식", "주제별 중첩 토글",
                    "전체 연결 시나리오·실제 사례", "면접 키워드·질문", "참고자료"],
             composition="작성 역할과 읽는 순서를 분리합니다. 기존 항목을 역할과 ID로 정확히 한 번 배치합니다.",
-            review="제목·요약·목차·본문·실제 그림이 포함된 같은 버전의 전체 미리보기를 양쪽 역할이 확인합니다.",
+            review="같은 버전의 Markdown 전체 본문·중첩 토글·코드·표·도식·캡션과 연결된 그림을 양쪽 역할이 확인합니다.",
         )
         profile["roles"]["main"] = "목차·요약을 구성하고 prepare_document_preview로 교차 검토할 불변 후보를 준비합니다. 검토한 후보만 save_draft로 승격합니다."
         profile["roles"]["advanced"] += " 전체 개념 연결 시나리오도 근거와 함께 작성합니다."
@@ -60,6 +60,8 @@ def profile_snapshot(name: str = "study_readable_v2") -> dict:
         "renderer_version": version,
         "verification_version": version,
         "diagram_transport": "mermaid",
+        "citation_style": "references_only",
+        "review_format": "markdown",
         "toggle_format": "details",
         "capability_verified": False,
         "guidance": {
@@ -75,19 +77,19 @@ def profile_snapshot(name: str = "study_readable_v2") -> dict:
             ],
             "explanation": "핵심 문장 → 이유 → 예시. 한 문단에 한 개념을 설명합니다.",
             "terms": "짧은 정의를 쓰고 긴 필요성·예시는 관련 본문으로 옮깁니다.",
-            "visuals": "구조·시간 순서·선택 조건을 설명할 때 도식이나 공식 공개 스크린샷을 사용합니다.",
+            "visuals": "이미지가 이해에 도움이 되면 관련 본문에 실제 이미지를 첨부합니다. 공식 공개 이미지를 우선하고, 적절한 이미지가 없으면 메인이 공개 웹·재현 가능한 실습 화면을 직접 캡처해 프로젝트 내부에 저장하고 register_visual_asset으로 등록합니다. 캡처 대상·시각·환경·설명·근거·이용 조건을 기록하며 확보하지 못하면 생략 이유와 텍스트·도식을 제공합니다.",
             "placement": "overview 또는 자기 역할의 안정적인 본문 항목 ID 뒤에 배치합니다.",
             "misconceptions": "related_item_id로 관련 설명 바로 뒤에 배치합니다.",
-            "citations": "본문에는 짧은 번호 링크, 하단에는 출처 상세를 표시합니다.",
-            "review": "그림의 화살표·경계·생략·전제와 표의 비교 조건을 원문 및 실제 렌더링 결과로 검토합니다.",
+            "citations": "본문·요약·표·답안·그림 캡션에는 출처를 표시하지 않습니다. claim_ids/source_ids는 검증용으로 유지하고 참고 사이트·문헌과 이미지 출처·캡처 상세는 마지막 참고 문헌에 표시합니다.",
+            "review": "Markdown의 본문·표·도식·캡션과 연결된 그림을 원문과 검토합니다. HTML 및 브라우저 화면 검증은 요구하지 않습니다.",
             "drafts": "초기 미완성 초안은 저장할 수 있습니다. 오류는 최종 통합 전에 해결합니다.",
         },
         "roles": {
             "main": "검증된 요약 3~5개를 작성하고 전체 흐름·중복·승인 묶음을 확인합니다.",
-            "research": "도식의 관계·순서·조건과 공개 스크린샷의 원문 위치·이용 조건을 수집합니다.",
+            "research": "도식의 근거와 공개 이미지의 원문 위치·URL·이용 조건을 수집합니다. 직접 캡처할 대상·재현 절차·환경은 메인에게 전달합니다.",
             "foundation": "짧은 용어 정의·대표 구조도·기초 비교표·쉬운 예시를 작성합니다.",
             "advanced": "내부 동작·실행 순서·선택 기준과 실제 사례를 작성합니다.",
-            "notion_writer": "승인된 배치·표·도식·접힌 답안을 보존하고 실제 재조회와 화면 확인 결과를 기록합니다.",
+            "notion_writer": "승인된 배치·표·도식·접힌 답안을 보존하고 실제 재조회한 본문·구조·자산을 기록합니다. Notion 화면 확인은 완료 조건이 아닙니다.",
         },
         "recommendations": {
             "summary_min": 3,

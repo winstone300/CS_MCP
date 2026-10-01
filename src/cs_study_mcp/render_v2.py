@@ -39,6 +39,10 @@ def render_readable(
     assets_by_hash = {item.get("hash", item.get("asset_hash")): item for item in assets}
     diagram_paths: dict[str, tuple[str, str]] = {}
     notion_overrides: dict[str, str] = {}
+    markdown_overrides: dict[str, str] = {}
+    markdown_review = profile.get("review_format") == "markdown"
+    references_only = profile.get("citation_style") == "references_only"
+    screenshot_references: list[str] = []
 
     def block(text: str) -> None:
         if text:
@@ -50,7 +54,7 @@ def render_readable(
             if sid not in citation_numbers:
                 citation_numbers[sid] = len(citation_numbers) + 1
             rendered.append(f"[{citation_numbers[sid]}]({sources[sid].url})")
-        return " ".join(rendered)
+        return "" if references_only else " ".join(rendered)
 
     def cite(section: FoundationSection | AdvancedSection, claim_ids: list[str]) -> str:
         claims = {claim.id: claim for claim in section.claims}
@@ -72,7 +76,9 @@ def render_readable(
             for row in table.rows:
                 cells = [_cell(value) for value in row.cells]
                 if row.claim_ids:
-                    cells[-1] += " " + cite(section, row.claim_ids)
+                    citation = cite(section, row.claim_ids)
+                    if citation:
+                        cells[-1] += " " + citation
                 table_cells.append(cells)
                 rows.append("| " + " | ".join(cells) + " |")
             markdown_table = "\n".join(rows)
@@ -110,7 +116,11 @@ def render_readable(
                     raise ValueError(f"그림의 승인용 자산이 없습니다: {section.kind}.{visual.id}")
                 markdown_image = f"![{_label(visual.alt_text)}](asset://{asset_hash})"
                 block(markdown_image)
-                if visual.kind == "screenshot" and visual.screenshot:
+                if markdown_review and path:
+                    markdown_overrides[markdown_image] = (
+                        f"![{_label(visual.alt_text)}]({Path(path).resolve().as_uri()})"
+                    )
+                if visual.kind == "screenshot" and visual.screenshot and visual.screenshot.image_url:
                     notion_overrides[markdown_image] = (
                         f"![{_label(visual.alt_text)}]({visual.screenshot.image_url})"
                     )
@@ -118,15 +128,42 @@ def render_readable(
             body(section, visual.caption, visual.claim_ids)
             if visual.screenshot:
                 screenshot = visual.screenshot
+                citation = source_cite([screenshot.source_id])
                 version = (
                     f" · 제품 버전 {screenshot.product_version}"
                     if screenshot.product_version
                     else ""
                 )
-                block(
-                    f"**공개 스크린샷:** {source_cite([screenshot.source_id])} · {screenshot.locator} · 확인일 {screenshot.accessed_at.date().isoformat()}{version}"
-                )
-                block(f"**이용 조건:** {screenshot.usage_note}")
+                if references_only:
+                    details = (
+                        f"- **이미지: {visual.title}** — {_label(screenshot.locator)}"
+                        f" · 확인일 {screenshot.accessed_at.date().isoformat()}{version}"
+                    )
+                    if screenshot.image_url:
+                        details += f" · [원본 이미지]({screenshot.image_url})"
+                    else:
+                        target = (
+                            f"[캡처 화면]({screenshot.capture_url})"
+                            if screenshot.capture_url else _label(screenshot.capture_target or "")
+                        )
+                        details += (
+                            f" · 직접 캡처: {target}"
+                            f" · 캡처 시각 {screenshot.captured_at.isoformat()}"
+                            f" · 실행 환경 {_label(screenshot.capture_environment or '')}"
+                        )
+                        if screenshot.capture_url and screenshot.capture_target:
+                            details += f" · 대상 {_label(screenshot.capture_target)}"
+                    details += (
+                        f" · 근거 [{citation_numbers[screenshot.source_id]}: "
+                        f"{_label(sources[screenshot.source_id].title)}]({sources[screenshot.source_id].url})"
+                        f" · 이용 조건 {_label(screenshot.usage_note)}"
+                    )
+                    screenshot_references.append(details)
+                else:
+                    block(
+                        f"**공개 스크린샷:** {citation} · {screenshot.locator} · 확인일 {screenshot.accessed_at.date().isoformat()}{version}"
+                    )
+                    block(f"**이용 조건:** {screenshot.usage_note}")
 
     def after(section: FoundationSection | AdvancedSection, item_id: str | None) -> None:
         if item_id is None:
@@ -144,7 +181,8 @@ def render_readable(
     block("## 핵심 요약")
     for point in draft.summary:
         section = foundation if point.section == "foundation" else advanced
-        block(f"- {point.text} {cite(section, point.claim_ids)}")
+        citation = cite(section, point.claim_ids)
+        block(f"- {point.text}" + (f" {citation}" if citation else ""))
     materials(foundation, None)
     materials(advanced, None)
     block("## 학습 목표·선수지식")
@@ -215,17 +253,19 @@ def render_readable(
             ("적용 한계", case.limitations),
         ]:
             block(f"**{label}:** {value}")
-        block("**확인된 사실의 근거:** " + cite(advanced, case.claim_ids))
+        citation = cite(advanced, case.claim_ids)
+        if not references_only:
+            block("**확인된 사실의 근거:** " + citation)
         block("**학습을 위한 해석:** " + case.interpretation)
         after(advanced, case.id)
         item_blocks[("advanced", case.id)] = lines[start:]
     if outline is not None:
         # Convert materials before adding structural tabs, including nested HTML tables.
-        def arrange(nodes, depth=0):
+        def arrange(nodes, depth=0, overrides=notion_overrides):
             arranged = []
             for node in nodes:
                 if isinstance(node, OutlineGroup):
-                    children = arrange(node.children, depth + 1)
+                    children = arrange(node.children, depth + 1, overrides)
                     title = escape(node.title, quote=False)
                     if node.display == "heading":
                         arranged.extend([f"{'#' * min(6, depth + 2)} {title}", "", *children])
@@ -233,12 +273,19 @@ def render_readable(
                         nested = "\n".join("\t" + line for line in "\n".join(children).split("\n"))
                         arranged.extend([f"<details>\n<summary>{title}</summary>\n{nested}\n</details>", ""])
                 else:
-                    arranged.extend(notion_overrides.get(line, line)
+                    arranged.extend(overrides.get(line, line)
                                     for line in item_blocks[(node.section, node.item_id)])
             return arranged
 
         lines = introduction + arrange(outline)
     common = list(lines)
+    if markdown_review:
+        lines = (
+            introduction + arrange(outline, overrides=markdown_overrides)
+            if outline is not None
+            else list(lines)
+        )
+        lines = [markdown_overrides.get(line, line) for line in lines]
     block("## 면접 질문")
     questions = [
         (label, section, i, question)
@@ -263,7 +310,7 @@ def render_readable(
         answer = f"**모범답안:** {question.answer}\n\n**해설:** {question.explanation}\n\n{cite(section, question.claim_ids)}"
         notion_answer = "\n".join("\t" + line for line in answer.split("\n"))
         block(f"<details>\n<summary>답안·해설</summary>\n{notion_answer}\n</details>")
-    references = ["## 참고자료", ""]
+    references = ["## 참고 문헌" if references_only else "## 참고자료", ""]
     for sid, number in citation_numbers.items():
         source = sources[sid]
         references.extend(
@@ -272,6 +319,8 @@ def render_readable(
                 "",
             ]
         )
+    for details in screenshot_references:
+        references.extend([details, ""])
     notion_lines = [notion_overrides.get(line, line) for line in lines]
     notion_markdown = "\n".join([*notion_lines, *references]).strip() + "\n"
     markdown = f"# {draft.title}\n\n" + "\n".join([*markdown_lines, *references]).strip() + "\n"
@@ -280,7 +329,12 @@ def render_readable(
         "markdown": markdown,
         "notion_markdown": notion_markdown,
         "blocks": blocks,
-        "html": _html_document(draft.title, blocks, diagram_paths, assets_by_hash),
+        # Retain historical serialization for frozen profiles and approved hashes.
+        "html": (
+            ""
+            if profile.get("review_format") == "markdown"
+            else _html_document(draft.title, blocks, diagram_paths, assets_by_hash)
+        ),
     }
 
 

@@ -131,7 +131,8 @@ def test_warnings_allow_draft_and_bundle_is_explicit(v2):
         check_publication_approval(study)
 
 
-def test_readback_requires_structure_and_actual_visual_confirmation(v2):
+@pytest.mark.parametrize("visual_flag", [None, False, True])
+def test_readback_requires_structure_without_visual_confirmation(v2, visual_flag):
     service, job_id = v2
     draft = review_and_draft(service, job_id)
     approve_v2(service, job_id, draft)
@@ -143,10 +144,8 @@ def test_readback_requires_structure_and_actual_visual_confirmation(v2):
         observed_title=intent["title"],
         observed_parent_page_id=PARENT_ID,
     )
-    result = service.record_publication(
-        job_id, PublicationInput(**base, observed_markdown=intent["markdown"])
-    )
-    assert result["status"] == "needs_attention"
+    if visual_flag is not None:
+        base["observed_visual_check"] = visual_flag
     changed_table = intent["markdown"].replace("<td>B</td>", "<td>CHANGED</td>")
     assert changed_table != intent["markdown"]
     result = service.record_publication(
@@ -154,13 +153,12 @@ def test_readback_requires_structure_and_actual_visual_confirmation(v2):
         PublicationInput(
             **base,
             observed_markdown=changed_table,
-            observed_visual_check=True,
         ),
     )
     assert result["status"] == "needs_attention"
     result = service.record_publication(
         job_id,
-        PublicationInput(**base, observed_markdown=intent["markdown"], observed_visual_check=True),
+        PublicationInput(**base, observed_markdown=intent["markdown"]),
     )
     assert result["status"] == "completed"
 

@@ -514,8 +514,7 @@ class StudyService(PresentationService):
         }
         try:
             result["path"] = str(self._export(job_id, version, markdown))
-            if preview_html:
-                result["preview_path"] = str(self._export_preview(job_id, version, preview_html))
+            result["preview_path"] = result["path"]
         except OSError as exc:
             result["export_error"] = str(exc)
             result["instructions"] = (
@@ -541,9 +540,6 @@ class StudyService(PresentationService):
         with self.db.connect() as db:
             draft = self._draft(db, self._job(db, job_id))
             version, markdown = draft["version"], draft["markdown"]
-            html = draft["preview_html"]
-        if html:
-            self._export_preview(job_id, version, html)
         return self._export(job_id, version, markdown)
 
     def record_review(self, job_id: str, review: ReviewInput) -> dict:
@@ -800,7 +796,6 @@ class StudyService(PresentationService):
                     observed_hash = readback["observed_hash"]
                     matches = (
                         readback["valid"]
-                        and result.observed_visual_check
                         and result.observed_title.strip() == json.loads(draft["content"])["title"]
                         and notion_id(result.observed_parent_page_id)
                         == publication["parent_page_id"]

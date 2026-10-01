@@ -14,8 +14,11 @@ from cs_study_mcp.service import StudyService
 def test_v2_renderer_matches_pre_v3_baseline_exactly():
     """Golden digests obtained from baseline commit 6f0dd45, not the new renderer."""
     f, a = readable_sections()
+    profile = profile_snapshot("study_readable_v2")
+    profile.pop("review_format")  # Frozen pre-Markdown profile, not today's default.
+    profile.pop("citation_style")  # Frozen profile used inline numbered references.
     rendered = render_readable(
-        draft_input(), f, a, {"S1": sample_source()}, profile_snapshot("study_readable_v2"), []
+        draft_input(), f, a, {"S1": sample_source()}, profile, []
     )
     expected = {
         "markdown": "8cfd52c2a8552436e16aefaa8696e2dda27d3abda2841c21a4992fa3de560995",

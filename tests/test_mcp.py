@@ -145,3 +145,4 @@ async def test_mcp_schemas_expose_visual_layout_and_bundle_evidence(service):
     ]
     assert {"observed_blocks", "observed_assets", "observed_visual_check"} <= publication.keys()
     assert publication["observed_visual_check"]["default"] is False
+    assert publication["observed_visual_check"]["deprecated"] is True

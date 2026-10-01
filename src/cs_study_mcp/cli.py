@@ -144,9 +144,7 @@ def main() -> None:
                 result = service.get_study(args.job_id)
             else:
                 path = service.export_draft(args.job_id)
-                result = {"path": str(path)}
-                if service.get_study(args.job_id)["draft"]["preview_html"]:
-                    result["preview_path"] = str(path.with_suffix(".html"))
+                result = {"path": str(path), "preview_path": str(path)}
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if args.command == "doctor" and not result["local_ready"]:
             raise SystemExit(1)

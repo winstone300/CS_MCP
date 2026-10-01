@@ -178,6 +178,49 @@ def canonicalize_markdown(text: str) -> list[dict[str, Any]]:
     return blocks
 
 
+def _unindent_toggle_children(lines: list[str]) -> list[str]:
+    """Remove a toggle tab while respecting Notion's raw code/table payloads."""
+    result, index = [], 0
+    while index < len(lines):
+        line = lines[index]
+        if line.strip() and not line.startswith("\t"):
+            raise PublicationFormatError("Notion toggle children must all use one structural tab")
+        result.append(line[1:] if line.startswith("\t") else line)
+        marker = re.match(r"^\s*(`{3,}|~{3,})", line)
+        index += 1
+        if marker:
+            fence = marker.group(1)
+            prefix = line[:len(line) - len(line.lstrip())]
+            start = index
+            while index < len(lines) and not re.fullmatch(
+                r"\s*" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*",
+                lines[index],
+            ):
+                index += 1
+            payload = lines[start:index]
+            # The renderer indents payloads with the opening fence; Notion
+            # readback emits payloads at the root while keeping fences nested.
+            structural = all(not value.strip() or value.startswith(prefix) for value in payload)
+            result.extend(
+                value[1:] if structural and value.startswith("\t") else value
+                for value in payload
+            )
+            if index < len(lines):
+                closing = lines[index]
+                if not closing.startswith("\t"):
+                    raise PublicationFormatError(
+                        "Notion toggle children must all use one structural tab"
+                    )
+                result.append(closing[1:])
+                index += 1
+        elif re.match(r"^\s*<table(?:\s|>)", line):
+            while index < len(lines) and lines[index].strip() != "</table>":
+                # XML table internals carry no Markdown list/code indentation.
+                result.append(lines[index])
+                index += 1
+    return result
+
+
 def _toggle_children(lines: list[str], start: int) -> tuple[list[dict[str, Any]], int]:
     """Extract one toggle while preserving nested Markdown indentation.
 
@@ -205,9 +248,7 @@ def _toggle_children(lines: list[str], start: int) -> tuple[list[dict[str, Any]]
                     children = lines[start:index]
                     first = next((line for line in children if line.strip()), "")
                     if first.startswith("\t"):
-                        if any(line.strip() and not line.startswith("\t") for line in children):
-                            raise PublicationFormatError("Notion toggle children must all use one structural tab")
-                        children = [line[1:] if line.startswith("\t") else line for line in children]
+                        children = _unindent_toggle_children(children)
                     return canonicalize_markdown("\n".join(children)), index + 1
         index += 1
     raise PublicationFormatError("Unclosed toggle")
@@ -239,7 +280,9 @@ def _parse(lines: list[str], index: int, *, nested: bool) -> tuple[list[dict[str
             children, index = _toggle_children(lines, index + 1)
             result.append({"type": "toggle", "title": summary.group(1), "children": children})
             continue
-        fence = re.fullmatch(r"\s*(`{3,}|~{3,})([^\s`]*)\s*", line)
+        # Notion reads a `text` code block back with its language name `plain text`.
+        # Accept only that known multiword alias; preserve code and other languages.
+        fence = re.fullmatch(r"\s*(`{3,}|~{3,})((?i:plain text)|[^\s`]*)\s*", line)
         if fence:
             marker, language = fence.groups()
             content = []
@@ -249,7 +292,10 @@ def _parse(lines: list[str], index: int, *, nested: bool) -> tuple[list[dict[str
                 index += 1
             if index == len(lines):
                 raise PublicationFormatError("Unclosed code fence")
-            result.append({"type": "code", "language": language.lower(), "text": "\n".join(content)})
+            language = language.lower()
+            if language == "plain text":
+                language = "text"
+            result.append({"type": "code", "language": language, "text": "\n".join(content)})
             index += 1
             continue
         alignment = _alignment(lines[index + 1]) if index + 1 < len(lines) else None
