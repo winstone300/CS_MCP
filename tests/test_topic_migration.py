@@ -56,7 +56,7 @@ def test_v2_to_v3_preserves_approved_publication_and_assets(service):
     for backup in backups:
         with sqlite3.connect(backup) as db:
             # A parallel initializer may finish before another backup starts.
-            assert db.execute("PRAGMA user_version").fetchone()[0] in (2, 3)
+            assert db.execute("PRAGMA user_version").fetchone()[0] in (2, 4)
             assert (
                 db.execute("SELECT content_hash FROM drafts WHERE job_id=?", (job_id,)).fetchone()[
                     0

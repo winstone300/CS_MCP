@@ -98,6 +98,29 @@ Notion 브라우저 화면 검증은 수행하거나 완료 조건으로 요구�
 표시 형식을 바꾸려면 새 초안과 승인이 필요하다.""",
 }
 
+VISUAL_ASSESSMENT_COMMON = """get_document_blueprint의 저장된 profile.visual_assessment_policy_version=1인 신규 작업에만 아래 절차를 적용한다. 값이 없는 기존 v1/v2/v3 작업에는 새 필드·검사·검토를 요구하지 않는다.
+표현의 학습 가치·관찰 목표·대체 설명의 충분성은 Codex가 판단한다. Python은 구조·참조·버전·자산만 검사한다.
+이미지 확보 실패와 이미지 불필요 판단을 구분한다. 등록 이미지가 없다는 사실이나 확보 불가 기록만으로 생략을 정당화하지 않는다. 핵심 주장·실제 사례의 근거가 부족하면 통합을 막는다.
+"""
+VISUAL_ASSESSMENTS = {
+    "research": "최초 조사에 공식 이미지 후보·캡처 대상·재현 절차·환경·이용 조건을 포함한다. 작성 역할의 관찰 목표를 확인하고 기존 근거로 처리 가능한 요청을 구분한다. 추가 조사는 메인의 request_research_followup 허가와 작업 전체 최대 2회 제한을 따르며 항목별로 반복하지 않는다.",
+    "foundation": "foundation.examples 각 항목에 정확히 하나의 visual_assessments를 저장한다. 다른 설명도 필요하면 평가한다. item_id·learning_goal·preferred_kind·rationale·source_ids·acquisition_plan을 기록하며 초안의 pending은 허용된다. 메인의 실제 결과는 get_visual_acquisitions/get_study로 읽고 result_ids에 연결한다. 자신의 부분에만 selected_kind·visual_ids 또는 explanation_item_id·change_reason·reader_note를 반영하고 status=resolved로 저장한다. 변경된 대상·요청에 오래된 확보 결과를 재사용하지 않는다. 최종 get_document_preview의 동일 후보 평가표와 확보 결과 전체를 실제 읽고 이미지·도식·텍스트의 적합성, 생략·대체 이유, 핵심 근거 유지 여부를 검토한다. record_cross_review.reviewed_visual_assessments에 양쪽 모든 평가의 section/assessment_id를 기록한다. reader_note는 발행 본문에 포함되며 내부 시도 로그는 본문에 복사하지 않는다.",
+    "advanced": "advanced.cases 각 항목에 정확히 하나의 visual_assessments를 저장한다. 다른 설명도 필요하면 평가한다. item_id·learning_goal·preferred_kind·rationale·source_ids·acquisition_plan과 실제 사례 사실/재현 실습의 차이를 명확히 한다. 메인의 실제 결과를 get_visual_acquisitions/get_study로 읽고 result_ids에 연결한다. 자신의 부분에만 selected_kind·visual_ids 또는 explanation_item_id·change_reason·reader_note를 반영하고 status=resolved로 저장한다. 대상·요청 변경 시 결과를 다시 확인한다. 기초 변경 후 최신 foundation_version과 내용을 갱신한다. get_document_preview의 동일 후보 평가표·확보 결과 전체를 실제 읽고 표현의 적합성·대체 이유·핵심 근거 유지 여부를 검토한다. record_cross_review.reviewed_visual_assessments에 양쪽 모든 평가의 section/assessment_id를 기록한다. reader_note는 발행 본문에 포함되며 내부 시도 로그는 본문에 복사하지 않는다.",
+    "notion_writer": "판단·채택한 확보 결과·본문·자산이 포함된 승인 묶음을 유지한다. reader_note의 실습 전제·생략 설명도 관련 본문에서 보존해 실제 재조회로 확인한다. 확보 결과나 표현 선택을 대신 변경하지 않는다. 승인된 자산만 기존 업로드·재개 절차로 처리한다.",
+}
+
+KOREAN_EXPRESSION_REVIEW_COMMON = """get_document_blueprint의 저장된 profile.korean_expression_review_version=1인 신규 study_topic_v3 작업에만 한국어 표현 검수를 적용한다. 값이 없는 기존 v1/v2/v3 작업에는 새 검수 필드·완료 조건을 요구하지 않는다.
+독자가 읽는 제목·요약·목차·목표·선수지식·양쪽 본문·용어의 필요성/예시·흔한 오해·사례 interpretation·표 셀·그림 캡션·alt_text·reader_note·질문·답안을 같은 최종 후보에서 검수한다. 제목·요약의 ref.item_id는 null이며 목차 제목은 그룹의 안정 ID를 사용한다. field는 summary.0.text나 rows.0.cells.1 같은 점 경로이며 해당 후보에서만 유효하므로 반환된 ref를 그대로 사용한다.
+코드 구문·URL·출처 제목/발췌·실행 명령·제품 버전·인용한 영어 원문은 보존한다. 본문 속 영어가 직접 인용인지 원문을 대조해 판단하며 영어 비율로 검토 대상을 임의 제외하지 않는다. Mermaid 내부 한국어 라벨은 korean_expression_targets 추출 밖이므로 기존 시각 교차 검토에서 표현도 확인한다. 정착된 기술 용어는 유지하고 첫 등장에 쉬운 설명을 붙이며 모호할 때 원어를 병기한다.
+가독성·자연스러움과 원문 의미 보존은 Codex가 판단한다. Python은 정책·검토 범위·후보·참조만 검사하며 검수 기록이 의미의 정확성을 입증하지 않는다. 의미 변화나 개념 이해를 방해하는 문제는 blocking, 이해 가능한 문장의 문체 개선은 advisory다. problem_kind=meaning_change는 severity=blocking과 실제 원문 evidence_refs가 필수다.
+"""
+KOREAN_EXPRESSION_REVIEWS = {
+    "research": "기술적으로 중요한 영어 표현의 원문 발췌·앞뒤 문맥·위치를 기존 sources의 evidence에 보존한다. 가능성·의무·권고·조건·예외·인과관계를 확인할 수 있게 제공하며 검색 요약을 원문으로 대신하지 않는다. 작성·검토 역할에 필요한 근거가 없으면 메인에 알린다. 추가 조사 요청은 메인이 모아 request_research_followup을 호출하며 작업 전체 최대 2회 한도를 유지한다.",
+    "foundation": "초안 작성 시 자기 부분의 한국어를 점검한다. 최종 교차 검토에서는 get_document_preview의 current=true인 지정 후보와 korean_expression_targets 전체를 실제 읽고 양쪽 본문뿐 아니라 문서 공통 영역도 readability 기준으로 검토한다. 직역체·긴 문장·주어/대상/지시어의 모호성·용어 풀이·표기 일관성을 확인한다. record_cross_review.korean_expression_review에는 policy_version=1, focus=readability, reviewed_targets=후보의 모든 ref를 기록한다. 지적은 기존 findings에 severity·location·comment를 기록하고 expression_detail의 target, problem_kind, current_text(후보의 실제 문제 구절), suggested_text를 제공한다. meaning_change 지적에는 실제 원문 evidence_refs(source_id/evidence_index)를 연결한다. 상대 본문은 수정하지 않고 원작성자에게 의견을 반환하며 제목·요약·목차·용어 통일 의견은 메인에게 반환한다. 수정 후 새 후보를 양쪽이 다시 검토한다.",
+    "advanced": "초안 작성 시 자기 부분의 한국어와 원문 의미 보존을 점검한다. 최종 교차 검토에서는 get_document_preview의 current=true인 지정 후보와 korean_expression_targets 전체를 실제 읽고 양쪽 본문과 문서 공통 영역을 meaning 기준으로 검토한다. 저장된 주장·원문 근거를 대조해 가능성·의무·권고·조건·예외·인과관계·비교 대상이 바뀌지 않았는지 확인한다. record_cross_review.korean_expression_review에는 policy_version=1, focus=meaning, reviewed_targets=후보의 모든 ref를 기록한다. 지적은 기존 findings에 severity·location·comment를 기록하고 expression_detail의 target, problem_kind, current_text(후보의 실제 문제 구절), suggested_text를 제공한다. meaning_change 지적에는 실제 원문 evidence_refs(source_id/evidence_index)를 반드시 연결한다. 원문이 부족하면 추측하지 않고 메인에 근거 보완을 요청한다. 상대 본문과 메인 공통 영역은 직접 수정하지 않는다. 기초 변경 시 foundation_version을 갱신하고 새 후보를 양쪽이 다시 검토한다.",
+    "notion_writer": "한국어 표현 검수가 연결된 승인 후보의 제목·요약·본문·용어·표·캡션·alt·실습 전제·생략 설명·질문·답안을 변경 없이 발행한다. 어색한 표현을 발견해도 승인 후 직접 고치지 않고 메인에 보고한다. 실제 재조회로 승인된 표현과 본문 구조가 보존됐는지 확인한다.",
+}
+
 
 def presentation_instructions(role: str) -> str:
     return (
@@ -113,6 +136,8 @@ def presentation_instructions(role: str) -> str:
             "advanced": "기초 항목 뒤에 연결할 심화·비교·한계·실제 사례를 안정 ID로 작성한다. 전체 개념 연결 시나리오는 자신의 concepts와 그림에 근거를 연결해 작성한다. 기술 예시는 body의 코드펜스, 흐름은 Mermaid를 사용한다. get_document_preview로 지정 버전의 Markdown과 양쪽 본문을 실제 읽고 중첩 토글 자식·코드·표·도식·캡션·연결된 그림·순서를 검토한다. HTML 파일 생성이나 브라우저 화면 검증은 요구하지 않는다. current=true인 같은 후보의 presentation_hash를 전달한다. 메인의 목차나 상대 본문을 직접 수정하지 않는다.",
             "notion_writer": "승인 묶음의 composition_version과 plan_hash를 보존한다. 제목·목차·중첩 토글·본문·표·그림·코드·답안을 바꾸지 않는다. 실제 도구 재조회에서는 중첩된 자식을 모두 보존해 비교한다. Notion 화면 검증은 요구하지 않는다. 로컬 Markdown 검토를 실제 Notion 재조회로 대신하지 않는다.",
         }[role]
+        + "\n" + VISUAL_ASSESSMENT_COMMON + VISUAL_ASSESSMENTS[role]
+        + "\n" + KOREAN_EXPRESSION_REVIEW_COMMON + KOREAN_EXPRESSION_REVIEWS[role]
         + "\n[/CS-STUDY TOPIC V3]"
     )
 
@@ -198,6 +223,8 @@ def configure(root: Path, upgrade_presentation: bool = False) -> None:
         "max_concurrent_threads_per_session = 3"
     )
     write_config(root / ".codex" / "config.toml", main, managed_block(root, "main"))
+    remove_project_usage_hooks(root)
+    disable_project_hooks(root)
     for role, description in DESCRIPTIONS.items():
         header = (
             f"name = {quote(role)}\n"
@@ -212,13 +239,55 @@ def configure(root: Path, upgrade_presentation: bool = False) -> None:
             upgrade_presentation_prompt(root / ".codex" / "agents" / f"{role}.toml", role)
 
 
+def remove_project_usage_hooks(root: Path) -> None:
+    """Migrate only our old marked hooks; preserve all user-owned hook sources."""
+    path = root / ".codex/config.toml"
+    text = path.read_text(encoding="utf-8-sig")
+    pattern = r"(?m)^(?:\r?\n)?# BEGIN CS-STUDY MANAGED USAGE HOOKS\r?\n.*?^# END CS-STUDY MANAGED USAGE HOOKS(?:\r?\n|$)"
+    updated, count = re.subn(pattern, "", text, flags=re.S)
+    if not count:
+        return
+    tomllib.loads(updated)
+    path.write_text(updated, encoding="utf-8")
+
+
+def disable_project_hooks(root: Path) -> None:
+    """Disable hooks in ordinary chats without replacing other feature flags."""
+    path = root / ".codex/config.toml"
+    text = path.read_text(encoding="utf-8-sig")
+    config = tomllib.loads(text)
+    if config.get("features", {}).get("hooks") is False:
+        return
+    table = re.search(r"(?m)^\[features\][ \t]*(?:#.*)?$", text)
+    if table:
+        next_table = re.search(r"(?m)^\[", text[table.end():])
+        end = table.end() + next_table.start() if next_table else len(text)
+        body = text[table.end():end]
+        body, count = re.subn(r"(?m)^(hooks\s*=\s*)(?:true|false)\b", r"\1false", body)
+        if not count:
+            body = "\nhooks = false" + body
+        updated = text[:table.end()] + body + text[end:]
+    elif re.search(r"(?m)^features\.hooks\s*=", text):
+        updated = re.sub(r"(?m)^(features\.hooks\s*=\s*)(?:true|false)\b", r"\1false", text)
+    elif re.search(r"(?m)^features\.", text):
+        updated = "features.hooks = false\n" + text
+    elif "features" not in config:
+        updated = text.rstrip() + "\n\n[features]\nhooks = false\n"
+    else:
+        raise ValueError(f"features 설정을 안전하게 병합하지 못했습니다: {path}")
+    parsed = tomllib.loads(updated)
+    if parsed.get("features", {}).get("hooks") is not False:
+        raise ValueError(f"hooks 비활성화 설정을 확인하지 못했습니다: {path}")
+    path.write_text(updated, encoding="utf-8")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument(
         "--upgrade-presentation",
         action="store_true",
-        help="기존 역할의 사용자 지침을 보존하며 v2/v3 문서 지침만 병합",
+        help="기존 역할의 사용자 지침을 보존하며 v2/v3 문서·시각 자료·한국어 검수 지침만 병합",
     )
     args = parser.parse_args()
     configure(args.project, args.upgrade_presentation)

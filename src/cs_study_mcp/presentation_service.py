@@ -10,6 +10,8 @@ from .presentation import document_blueprint, presentation_issues, profile_snaps
 from .render import digest
 from .storage import dumps, event, now
 from .topic_service import TopicService
+from .visual_acquisition_service import VisualAcquisitionService
+from .visual_assessment import assessment_policy
 
 
 def fail(code, message):
@@ -43,7 +45,7 @@ def atomic_text(path: Path, text: str):
             os.unlink(name)
 
 
-class PresentationService(TopicService):
+class PresentationService(TopicService, VisualAcquisitionService):
     def get_document_blueprint(self, job_id, role):
         with self.db.connect() as db:
             profile = profile_for(self._job(db, job_id))
@@ -130,6 +132,11 @@ class PresentationService(TopicService):
             "section_hashes": {k: row["content_hash"] if row else None for k, row in rows.items()},
             "assets": [{k: v for k, v in asset.items() if k != "path"} for asset in assets],
         }
+        evidence = {}
+        if assessment_policy(profile):
+            evidence = self._assessment_evidence(db, job, (f, a))
+            report["errors"].extend(evidence["errors"])
+            manifest["visual_acquisitions"] = evidence["acquisitions"]
         result = {
             **report,
             "valid": not report["errors"],
@@ -138,6 +145,8 @@ class PresentationService(TopicService):
             "assets": assets,
             "presentation_hash": digest(dumps(manifest)),
         }
+        if evidence:
+            result["visual_assessments"] = evidence["visual_assessments"]
         if is_topic(job) and include_preview:
             return self._topic_presentation(db, job, result)
         return result

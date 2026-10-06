@@ -104,6 +104,35 @@ def test_plain_text_alias_does_not_hide_mermaid_language_changes():
     )["valid"]
 
 
+def test_notion_escaped_numeric_range_in_nested_prose_matches_literal_range():
+    approved = (
+        "<details>\n<summary>모드</summary>\n"
+        "\t<details>\n\t<summary>권한 수준</summary>\n"
+        "\t\tIntel x86은 0~3의 네 privilege level을 정의한다.\n"
+        "\t</details>\n</details>"
+    )
+    expected = canonicalize_markdown(approved)
+    observed = approved.replace("0~3", r"0\~3")
+    assert verify_readback(expected, observed)["valid"]
+    assert verify_readback(expected, observed)["observed_hash"] == verify_readback(
+        expected, approved,
+    )["observed_hash"]
+    assert not verify_readback(expected, observed.replace("3의", "4의"))["valid"]
+    assert not verify_readback(expected, observed.replace(r"0\~3", r"0\\~3"))["valid"]
+
+
+@pytest.mark.parametrize("approved", [
+    "`0~3`", "```text\n0~3\n```", "```mermaid\nA[0~3]\n```",
+    "[0~3](https://example.org/0~3)", "https://example.org/0~3", "~~0~3~~",
+    "| 範囲 |\n| --- |\n| 0~3 |", "## 0~3",
+    "<details>\n<summary>0~3</summary>\n本文\n</details>",
+])
+def test_range_escape_equivalence_does_not_change_code_links_or_other_blocks(approved):
+    assert not verify_readback(
+        canonicalize_markdown(approved), approved.replace("0~3", r"0\~3"),
+    )["valid"]
+
+
 def test_notion_nested_raw_code_and_table_payloads_preserve_contents():
     approved = (
         '<details>\n<summary>주제</summary>\n\t<details>\n\t<summary>내용</summary>\n'
@@ -126,6 +155,36 @@ def test_notion_nested_raw_code_and_table_payloads_preserve_contents():
     assert not verify_readback(expected, observed.replace('\t\t```\n', '\t\t```\n빠진 구조 탭\n'))["valid"]
     assert not verify_readback(expected, observed.replace('<td>값</td>', '<td>변경</td>'))["valid"]
     assert not verify_readback(expected, observed.replace('<tr>\n<td>값</td>\n</tr>', ''))["valid"]
+
+
+def test_notion_escaped_half_open_intervals_preserve_nested_prose_and_endpoints():
+    approved = (
+        "<details>\n<summary>스케줄링</summary>\n"
+        "\t<details>\n\t<summary>RR 계산</summary>\n"
+        "\t\tA의 ready 대기는 [2,4)와 [6,7), B의 ready 대기는 [0,2)와 [4,6)이다.\n"
+        "\t</details>\n</details>"
+    )
+    expected = canonicalize_markdown(approved)
+    observed = approved.replace("[", r"\[")
+    result = verify_readback(expected, observed)
+    assert result["valid"]
+    assert result["observed_hash"] == verify_readback(expected, approved)["observed_hash"]
+    assert not verify_readback(expected, observed.replace("2,4)", "2,5)"))["valid"]
+    assert not verify_readback(expected, observed.replace("2,4)", "2,4]"))["valid"]
+    assert not verify_readback(expected, observed.replace(r"\[2,4)", r"\\[2,4)"))["valid"]
+
+
+@pytest.mark.parametrize("approved", [
+    "`[2,4)`", "```text\n[2,4)\n```", "```mermaid\nA[2,4)\n```",
+    "[구간](https://example.org) [2,4)", "https://example.org/[2,4)",
+    "~~[2,4)~~", "| 구간 |\n| --- |\n| [2,4) |", "## [2,4)",
+    "- [2,4)", "<details>\n<summary>[2,4)</summary>\n본문\n</details>",
+    "다른 \\문자와 [2,4)",
+])
+def test_interval_escape_equivalence_keeps_code_links_and_other_blocks_opaque(approved):
+    assert not verify_readback(
+        canonicalize_markdown(approved), approved.replace("[2,4)", r"\[2,4)"),
+    )["valid"]
 
 
 def test_signed_image_urls_require_bytes_or_persisted_receipt():

@@ -17,14 +17,15 @@ Python 3.12와 Codex가 필요합니다. 프로젝트 루트에서 실행합니�
 
 ~~~powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
-codex login
+$StudyCodex = & ./.venv/Scripts/python.exe -c "from cs_study_mcp.runner import resolve_codex; print(resolve_codex() or '')"
+& $StudyCodex login
 ~~~
 
 setup은 프로젝트 .venv에 고정된 의존성을 설치하고 프로젝트 전용 Codex 구성을 만듭니다.
 전역 Codex 설정이나 로그인 토큰을 복사하지 않습니다. 기존 역할 프롬프트와 모델 설정은 보존하고,
 표시된 관리 구간의 연결 경로와 도구 목록만 갱신합니다.
 
-기존 역할의 사용자 지침과 모델 설정을 보존하면서 새 문서 지침을 명시적으로 병합하려면 실행합니다.
+기존 역할의 사용자 지침과 모델 설정을 보존하면서 새 문서·시각 자료·한국어 표현 검수 지침을 명시적으로 병합하려면 실행합니다.
 
 ~~~powershell
 & ./.venv/Scripts/python.exe scripts/configure_codex.py --upgrade-presentation
@@ -38,7 +39,7 @@ Notion 대상 설정과 OAuth 연결:
 
 ~~~powershell
 & ./.venv/Scripts/python.exe -m cs_study_mcp configure --notion-parent "https://app.notion.com/p/3cef6254d56c80b789cfedb643163efd"
-codex -c 'mcp_servers.notion.url="https://mcp.notion.com/mcp"' mcp login notion
+& $StudyCodex -c 'mcp_servers.notion.url="https://mcp.notion.com/mcp"' mcp login notion
 ~~~
 
 OAuth는 본인의 브라우저에서 완료해야 합니다. 기본 메인 역할에서는 Notion 도구를 비활성화하고
@@ -67,7 +68,7 @@ config_file 지정으로도 해소되지 않았습니다. 따라서 사용자가
 메인이 사용하는 명령은 다음과 같습니다. 평소 사용자는 위의 학습 요청만 입력하면 됩니다.
 
 ~~~powershell
-cd C:\Users\SSAFY\Desktop\CS_MCP
+# 프로젝트 루트에서 실행
 # 읽기 전용 연결 진단: 실제 서버 역할, 필수 도구, research의 웹 연결 확인
 & .\.venv\Scripts\python.exe -m cs_study_mcp run-role research --job-id "<job_id>" --check
 # 작업 파일에는 조사 범위·문서 버전·담당 산출물을 구체적으로 작성
@@ -89,8 +90,76 @@ foundation, advanced, notion_writer에도 같은 명령 형식을 사용합니�
 ~~~
 
 실행 기록은 `.cs-study/runs/<run_id>/run.json`, 보고서는 `result.md`, 로그는 `execution.log`입니다.
+Codex 데스크톱에서 실행하면 `CODEX_CLI_PATH`가 가리키는 앱의 CLI를 우선 사용하고, 경로가 없거나
+파일이 없으면 PATH의 `codex`를 사용합니다. 선택한 실행 파일은 doctor와 run.json에서 확인합니다.
+역할 실행에서는 앱 도구를 비활성화해 `web_search=disabled`와 별도로 노출되는 앱 웹 검색을 차단합니다.
+research의 내장 웹 검색과 역할 TOML에 지정된 MCP 연결은 유지합니다.
+`invalid type: boolean, expected struct AgentRoleToml` 오류가 나면 PATH의 CLI가 역할 설정을
+지원하지 않는 구버전인지 확인하세요. 터미널에서 실행할 때는 호환 CLI를 사용해야 합니다.
 finished는 Codex 프로세스 종료 상태입니다. 학습 완료·검증 통과·발행 여부는 DB와 보고서를 별도로 확인합니다.
 실행 창을 강제 종료했다면 남아 있는 Codex 프로세스의 종료를 확인하고 재개하세요.
+
+## 역할별 토큰 사용량
+
+`run-role`은 `codex exec --json`의 stdout을 `events.jsonl`, stderr를 `execution.log`에
+저장합니다. `result.md`는 역할의 최종 응답입니다. 종료 후 같은 실행 디렉터리에
+`usage.json`·`usage.md`를 생성하고 `.cs-study/usage/jobs/<job_id>.md`를 자동 갱신합니다.
+메인 채팅과 도구별 토큰은 집계하지 않습니다. 추가 모델 호출도 없습니다.
+
+~~~powershell
+& ./.venv/Scripts/python.exe -m cs_study_mcp usage --run-id "<run_id>"
+& ./.venv/Scripts/python.exe -m cs_study_mcp usage --job-id "<job_id>"
+# 원본 이벤트 재처리: 에이전트 호출·학습 DB 변경 없이 보고서 복구
+& ./.venv/Scripts/python.exe -m cs_study_mcp usage --run-id "<run_id>" --rebuild
+& ./.venv/Scripts/python.exe -m cs_study_mcp usage --job-id "<job_id>" --rebuild
+~~~
+
+전체 토큰은 입력 + 출력입니다. 캐시 입력과 추론 출력은 입력·출력의 세부 항목이므로
+다시 더하지 않습니다. 명시적으로 보고된 0은 0, 미제공 값은 미확인(`null`)으로 보존합니다.
+선택 항목의 합계에는 값이 제공된 실행 비율을 표시합니다.
+
+실행 결과, 토큰 수집(`complete`·`partial`·`unknown`), 훅 수집, 보고서 저장은 독립적으로
+기록합니다. 종료가 확인된 완전 수집 실행만 기본 합계에 포함하고 부분 수집량은 별도로
+표시합니다. 실패·중단 실행도 완전 수집이면 합계에 포함합니다. `--check`와
+`--check-presentation`은 진단 표에 따로 집계합니다. 미확인을 0으로 추정하지 않습니다.
+
+현재 파서는 새 세션의 단일 턴 `turn.completed.usage` 형식을 지원합니다. Codex CLI
+**0.160.0**에서 얻은 실제 사용량 표본을 민감 정보 없이 테스트 fixture로 보관합니다.
+실행 파일·CLI 버전·파서 버전, 역할 TOML 적용 후의 요청 모델·추론 강도와 설정 출처를
+기록합니다. Codex가 보고한 모델은 훅 영수증의 관측값으로 따로 표시하며, 요청값으로
+실제 모델을 추정하지 않습니다. 복수 턴·중복/충돌 사용량 이벤트는 임의로 합산하지 않습니다.
+
+실행 중 재집계는 읽기 시점의 이벤트 범위만 처리한 잠정 보고서입니다. 강제 종료로
+`running`이 남으면 종료를 추정하지 않고 잠정 상태를 유지합니다. 기록되지 않은 토큰은
+복구할 수 없습니다. 과거 실행을 자동 변환하지 않으며, 명시적 재집계에서 구조화된
+사용량이 없는 기록은 미확인으로 표시합니다. 원본 이벤트와 `run.json` 상태는 재집계로
+변경하거나 삭제하지 않습니다. 실행별·작업별 OS 잠금과 임시 파일 교체를 사용하며,
+잠금 대기는 최대 3초입니다. 기존 합계에 더하지 않고 원본에서 다시 계산합니다.
+
+학습용 훅은 `run-role`의 자식 CLI에 `-c hooks.<Event>=...`로만 등록합니다.
+프로젝트 기본 설정은 `features.hooks = false`이며, `run-role` 자식 CLI에만
+`features.hooks = true`를 전달합니다. 훅 정의의 신뢰 검토와 실행 식별자 검사는 유지합니다.
+일반 채팅의 프로젝트 설정에는 등록하지 않으며, 설정 생성기는 기존
+`CS-STUDY MANAGED USAGE HOOKS` 영역만 제거합니다. 다른 훅과 사용자 설정을
+보존하며 반복 생성해도 중복되지 않습니다. `SessionStart`, `Stop`, `SessionEnd`,
+`Interrupt`의 command 훅은 실행별 자식 환경의 식별자를
+확인해 `.cs-study/runs/<run_id>/hooks/`에 세션·이벤트·시각·보고된 모델만 저장합니다.
+실행 식별자는 자식 프로세스 환경과 CLI의 `shell_environment_policy.set`에 함께 전달하며,
+기존 환경 상속·필터 설정은 유지합니다.
+메인 채팅에서는 학습용 훅을 호출하지 않습니다. 훅은 모델에 추가 지시를 전달하지 않습니다.
+Windows 명령은 공백·한글·따옴표 경로를 보존하기 위해 PowerShell UTF-16LE
+`EncodedCommand`를 사용합니다. 내용은 현재 Python으로 `-m cs_study_mcp.usage_hook`에
+프로젝트 경로를 전달하는 호출이며, `usage_hook.py`에서 확인할 수 있습니다.
+
+새롭거나 변경된 세션 훅은 **CLI `/hooks`에서 해당 정의의 검토·신뢰**가
+필요합니다. 신뢰를 자동 우회하지 않습니다. 실행 파일이나 프로젝트 경로가 바뀌어 정의가
+변경되면 다시 검토해야 합니다. 훅 영수증이 없으면 비활성·미신뢰·실행 누락 중 원인을
+확정하지 않고 `missing`으로 표시합니다. 토큰 이벤트가 유효하면 토큰 수집은 완전으로
+기록할 수 있습니다. 현재 일반 종료에서 모든 훅 종류가 반드시 발생한다고 가정하지 않습니다.
+
+수집 파일 저장 실패 후에도 stdout·stderr를 계속 소비합니다. 사용량 오류는 별도
+메타데이터와 stderr에 남기며 역할의 종료 코드·원래 예외·최종 응답을 덮어쓰지 않습니다.
+파일을 저장할 수 없는 환경에서는 보고서 생성 성공을 보장하지 않습니다.
 
 이번에 중단된 작업은 새 작업을 만들지 않고, 새 메인 채팅에 아래처럼 요청합니다.
 
@@ -216,9 +285,91 @@ Markdown 파일은 검토용 내보내기입니다. 파일 직접 수정은 DB/�
 `export`만 다시 실행하세요. 같은 초안을 저장하려고 save_draft를 반복하지 않습니다.
 PC가 꺼졌거나 Codex가 종료된 동안 에이전트는 실행되지 않습니다.
 
-v1/v2 DB를 처음 열 때 일관된 SQLite 백업을 `.cs-study/backups/schema-v<이전 버전>-*/`에 저장하고
-schema v3로 마이그레이션합니다. 기존 문서 프로필과 행은 보존합니다. 기존 자산 디렉터리가 있으면 함께 백업합니다. 정기 백업·프로젝트 이동에도 DB와
+v1/v2/v3 DB를 처음 열 때 일관된 SQLite 백업을 `.cs-study/backups/schema-v<이전 버전>-*/`에 저장하고
+schema v4로 마이그레이션합니다. 기존 문서 프로필과 행은 보존합니다. 기존 자산 디렉터리가 있으면 함께 백업합니다. 정기 백업·프로젝트 이동에도 DB와
 `.cs-study/assets/`를 함께 보존하세요. 열린 SQLite 파일만 복사하는 방법은 사용하지 않습니다.
+
+## 신규 v3의 시각 자료 판단
+
+새 v3 작업에는 `visual_assessment_policy_version=1`이 고정됩니다. 값이 없는 기존 v1/v2/v3 작업의
+규칙·본문·직렬화·검토·승인은 유지됩니다. 새 필드를 기존 작업에 추가하지 않습니다.
+
+foundation의 `examples`, advanced의 `cases`마다 `visual_assessments` 하나를 저장합니다.
+평가에는 `id`, `item_id`, `learning_goal`, `preferred_kind`(image/diagram/text), `rationale`를 기록합니다.
+필요한 근거는 `source_ids`, 이미지 확보 계획은 `acquisition_plan`으로 연결합니다.
+초안의 `status=pending`은 허용되며 최종 후보에는 `status=resolved`와 `selected_kind`가 필요합니다.
+이미지·도식은 대상 본문 뒤에 배치한 `visual_ids`, 텍스트·코드는 실제 본문 위치인 `explanation_item_id`로 연결합니다.
+최초 판단을 바꾸면 `change_reason`, 이미지 대신 설명을 제공하면 독자용 `reader_note`를 기록합니다.
+독자용 설명의 근거는 `claim_ids`로 연결합니다. 내부 수행 상세는 발행 본문에 넣지 않습니다.
+
+메인은 성공 자산을 `register_visual_asset`으로 등록한 뒤 `record_visual_acquisition(job_id, content)`으로
+실제 확보 결과를 즉시 저장합니다. content에는 불변 `result_id`, `section`, `assessment_id`,
+실제 읽은 `expected_section_version`, `procedure`, `environment`, 시간대가 있는 `checked_at`,
+`outcome`(acquired/unavailable)을 전달합니다. 성공에는 `asset_hash`와 기존 규격의 `screenshot`,
+확보 불가에는 실제 확인한 `constraint`가 필요합니다. 결과 ID에 다른 내용을 다시 저장할 수 없습니다.
+
+중단 후 `get_visual_acquisitions`에서 기존 결과와 등록 자산을 확인합니다. 작성 역할이 결과를 읽고
+`result_ids`에 연결합니다. 메인의 최신 결과가 미반영됐거나 대상 본문·요청이 바뀐 결과는 최종 후보를 막습니다.
+대상이 바뀌면 메인이 기존 자산의 적합성을 다시 확인한 결과를 새 ID와 최신 부분 문서 버전으로 기록할 수 있습니다.
+
+`get_document_preview`의 `visual_assessments`에는 해당 후보에 고정된 평가와 확보 결과가 포함됩니다.
+양쪽 검토자는 실제 자료·대체 설명과 관찰 목표를 검토하고, `record_cross_review`의
+`reviewed_visual_assessments`에 양쪽 모든 평가를 `{"section":"foundation","assessment_id":"평가ID"}` 형식으로 기록합니다.
+검토 대상 누락·중복·불일치는 차단합니다. 핵심 근거가 부족한 대체 설명은 blocking 검토로 통합을 막습니다.
+Python은 학습 가치나 생략 사유의 타당성을 판단하지 않습니다.
+
+평가·확보 결과·본문·자산 변경은 새 후보·양쪽 검토·승인이 필요합니다. 동일 후보 파일 복구는 기존 승인을 보존합니다.
+notion_writer는 독자용 설명과 승인 자산을 발행하고 실제 재조회한 본문·구조·자산으로 완료 여부를 확인합니다.
+
+## 신규 v3의 한국어 표현 검수
+
+새 v3 작업에는 `korean_expression_review_version=1`이 고정됩니다. 정책 값이 없는 기존 v1/v2/v3 작업의
+규칙·직렬화·본문·해시·검토·승인은 유지하며, 새 검수 의무를 추가하지 않습니다.
+역할 설정 갱신은 위의 `configure_codex.py --upgrade-presentation`으로 수행하고 새 Codex 세션에서 확인합니다.
+
+기존 교차 검토에서 foundation은 **가독성(readability)**, advanced는 **원문 의미 보존(meaning)**을 담당합니다.
+두 역할 모두 같은 `current=true` 후보의 전체 `korean_expression_targets`를 실제 읽습니다.
+대상은 양쪽 본문뿐 아니라 제목·요약·목차·목표·선수지식·용어의 필요성/예시·흔한 오해·사례 해석·표 셀·캡션·alt_text·독자용 설명·질문·답안입니다.
+정착된 기술 용어는 유지하며 처음 등장할 때 풀이를 붙이고, 모호하면 영어 원어를 병기합니다.
+코드 구문·URL·출처 제목/발췌·실행 명령·제품 버전·인용한 영어 원문은 보존합니다. 원문이 종합된 설명은 연결된 주장과 근거를 대조합니다.
+본문 속 영어의 직접 인용 여부는 역할이 원문을 대조해 판단하며 영어 비율로 대상을 임의 제외하지 않습니다.
+Mermaid 내부 한국어 라벨은 텍스트 목록 추출 밖이므로 기존 시각 교차 검토에서 표현도 확인합니다.
+
+`get_document_preview`의 `korean_expression_targets`는 각 대상의 `ref`, 검토 가능한 `text`, `source_ids`를 제공합니다.
+`ref`는 `scope`(document/foundation/advanced), `item_id`, `field` 점 경로입니다.
+제목·요약의 `item_id`는 null이며 목차 제목은 그룹의 안정 ID를 사용합니다.
+`summary.0.text`나 `rows.0.cells.1` 같은 경로는 해당 후보 안에서만 유효하므로 반환된 참조를 그대로 사용합니다.
+양쪽 역할은 `record_cross_review`에 다음 정보를 추가하며 후보의 모든 `ref`를 빠짐없이 전달합니다.
+
+~~~json
+{
+  "korean_expression_review": {
+    "policy_version": 1,
+    "focus": "readability",
+    "reviewed_targets": [
+      {"scope": "document", "item_id": null, "field": "title"}
+    ]
+  }
+}
+~~~
+
+위 목록은 형식 예시이며 실제 호출에는 해당 후보의 전체 목록을 사용합니다. advanced는 `focus=meaning`을 전달합니다.
+문제는 기존 `findings`의 severity·location·comment에 기록하고, `expression_detail`에는 `target`,
+`problem_kind`, `current_text`, `suggested_text`, `evidence_refs`를 제공합니다.
+문제 유형은 readability/ambiguity/terminology/consistency/meaning_change입니다. `meaning_change`는 `severity=blocking`이 필수입니다.
+`current_text`에는 후보 대상의 실제 문제 구절을 기록하며, meaning_change에는 저장된 원문을 가리키는
+`evidence_refs`의 `source_id`·`evidence_index`가 필요합니다. 예를 들어 `can improve`를 확정 표현으로
+옮긴 문제는 가능성을 보존하는 수정안과 원문 근거를 함께 제시합니다.
+
+의미 변화와 개념 이해를 방해하는 문제는 blocking, 이해 가능한 문장의 문체 개선은 advisory로 분류합니다.
+research는 중요한 영어 표현의 실제 원문·문맥·위치를 기존 evidence에 보존합니다.
+추가 근거 요청은 메인이 모아서 기존 `request_research_followup`의 작업 전체 최대 2회 한도를 따릅니다.
+Python은 정책·담당 기준·범위·후보·참조를 검사하며 자연스러움과 의미의 정확성을 판단하지 않습니다.
+
+메인은 용어 표기를 조정하고 수정 요청을 원작성자에게 전달합니다. 본문은 담당 역할, 제목·요약·목차는
+메인이 수정합니다. 표현만 바꿔도 새 후보와 양쪽 검토가 필요하며 이전 검토·승인을 재사용할 수 없습니다.
+동일 후보 파일 복구는 기존 승인을 보존합니다. notion_writer는 승인된 표현을 그대로 발행하고 재조회하며
+승인 후 표현을 직접 고치지 않습니다.
 
 ## 검사와 테스트
 

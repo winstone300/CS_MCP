@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"sanitized-fixture-session"}
+{"type":"turn.started"}
+{"type":"turn.completed","usage":{"input_tokens":98121,"cached_input_tokens":67200,"cache_write_input_tokens":0,"output_tokens":1020,"reasoning_output_tokens":96}}

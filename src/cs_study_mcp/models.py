@@ -22,6 +22,18 @@ Role = Literal["main", "research", "foundation", "advanced", "notion_writer"]
 class Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    @model_serializer(mode="wrap")
+    def preserve_historical_serialization(self, handler):
+        data = handler(self)
+        # New optional handoffs must not change historical sections/reviews.
+        for key in ("visual_assessments", "reviewed_visual_assessments"):
+            if key in data and not data[key]:
+                data.pop(key)
+        for key in ("korean_expression_review", "expression_detail"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
+
 
 class Evidence(Model):
     excerpt: Text
@@ -186,6 +198,55 @@ class Visual(Model):
     screenshot: ScreenshotSource | None = None
 
 
+VisualMedium = Literal["image", "diagram", "text"]
+
+
+class VisualAssessment(Model):
+    id: Identifier
+    item_id: Identifier
+    learning_goal: Text
+    preferred_kind: VisualMedium
+    rationale: Text
+    source_ids: list[Identifier] = Field(default_factory=list)
+    acquisition_plan: str = ""
+    status: Literal["pending", "resolved"] = "pending"
+    selected_kind: VisualMedium | None = None
+    visual_ids: list[Identifier] = Field(default_factory=list)
+    result_ids: list[Identifier] = Field(default_factory=list)
+    explanation_item_id: Identifier | None = None
+    change_reason: Text | None = None
+    reader_note: Text | None = Field(default=None, description="대상 본문에 표시할 실습 전제·생략 설명")
+    claim_ids: list[Identifier] = Field(default_factory=list)
+
+
+class VisualAcquisitionInput(Model):
+    result_id: Identifier
+    section: SectionKind
+    assessment_id: Identifier
+    expected_section_version: int = Field(ge=1)
+    procedure: Text
+    environment: Text
+    checked_at: AwareDatetime
+    outcome: Literal["acquired", "unavailable"]
+    constraint: Text | None = None
+    asset_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+    screenshot: ScreenshotSource | None = None
+
+    @model_validator(mode="after")
+    def check_outcome(self):
+        if self.outcome == "acquired":
+            if not self.asset_hash or self.screenshot is None:
+                raise ValueError("확보 성공에는 등록 자산 해시와 출처·캡처 정보가 필요합니다.")
+        elif not self.constraint or self.asset_hash or self.screenshot is not None:
+            raise ValueError("확보 불가에는 확인한 제약이 필요하며 이미지 자산을 연결할 수 없습니다.")
+        return self
+
+
+class VisualAssessmentRef(Model):
+    section: SectionKind
+    assessment_id: Identifier
+
+
 class FoundationSection(Model):
     kind: Literal["foundation"] = "foundation"
     objectives: list[Text] = Field(default_factory=list)
@@ -198,6 +259,7 @@ class FoundationSection(Model):
     questions: list[Question] = Field(default_factory=list)
     comparisons: list[ComparisonTable] = Field(default_factory=list)
     visuals: list[Visual] = Field(default_factory=list)
+    visual_assessments: list[VisualAssessment] = Field(default_factory=list)
 
 
 class AdvancedSection(Model):
@@ -210,15 +272,42 @@ class AdvancedSection(Model):
     questions: list[Question] = Field(default_factory=list)
     comparisons: list[ComparisonTable] = Field(default_factory=list)
     visuals: list[Visual] = Field(default_factory=list)
+    visual_assessments: list[VisualAssessment] = Field(default_factory=list)
 
 
 KnowledgeSection = Annotated[FoundationSection | AdvancedSection, Field(discriminator="kind")]
+
+
+class KoreanExpressionTargetRef(Model):
+    scope: Literal["document", "foundation", "advanced"]
+    item_id: Identifier | None = None
+    field: Text = Field(description="같은 후보 안의 필드 경로. 예: body, summary.0.text, rows.0.cells.1")
+
+
+class KoreanExpressionEvidenceRef(Model):
+    source_id: Identifier
+    evidence_index: int = Field(ge=0, description="저장된 Source.evidence의 원문 발췌 인덱스")
+
+
+class KoreanExpressionDetail(Model):
+    target: KoreanExpressionTargetRef
+    problem_kind: Literal["readability", "ambiguity", "terminology", "consistency", "meaning_change"]
+    current_text: Text
+    suggested_text: Text
+    evidence_refs: list[KoreanExpressionEvidenceRef] = Field(default_factory=list)
+
+
+class KoreanExpressionReview(Model):
+    policy_version: int = Field(ge=1)
+    focus: Literal["readability", "meaning"]
+    reviewed_targets: list[KoreanExpressionTargetRef] = Field(default_factory=list)
 
 
 class Finding(Model):
     severity: Literal["blocking", "advisory"]
     location: Text
     comment: Text
+    expression_detail: KoreanExpressionDetail | None = None
 
 
 class CrossReview(Model):
@@ -231,6 +320,8 @@ class CrossReview(Model):
     presentation_hash: str | None = Field(
         default=None, description="실제 검토한 부분 문서와 렌더링 자산 묶음의 해시"
     )
+    reviewed_visual_assessments: list[VisualAssessmentRef] = Field(default_factory=list)
+    korean_expression_review: KoreanExpressionReview | None = None
 
 
 class SummaryPoint(Model):

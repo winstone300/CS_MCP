@@ -94,6 +94,16 @@ CREATE TABLE document_previews (
 );
 """
 
+MIGRATION_V4 = """
+CREATE TABLE IF NOT EXISTS visual_acquisitions (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ job_id TEXT NOT NULL REFERENCES jobs(id), result_id TEXT NOT NULL,
+ content TEXT NOT NULL, content_hash TEXT NOT NULL,
+ target_hash TEXT NOT NULL, request_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+ UNIQUE(job_id,result_id)
+);
+"""
+
 
 def now() -> str:
     return datetime.now(UTC).isoformat()
@@ -123,11 +133,11 @@ class Database:
                         raise
                     time.sleep(0.05)
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2, 3):
+            if version not in (0, 1, 2, 3, 4):
                 raise RuntimeError(f"지원하지 않는 DB 스키마 버전: {version}")
-            if version < 3:
+            if version < 4:
                 # Backup API includes committed WAL frames. Never copy an open .sqlite file.
-                if version in (1, 2):
+                if version in (1, 2, 3):
                     backup = (
                         self.directory
                         / "backups"
@@ -163,6 +173,11 @@ class Database:
                             if statement.strip():
                                 db.execute(statement)
                         db.execute("PRAGMA user_version = 3")
+                    if current < 4:
+                        for statement in MIGRATION_V4.split(";"):
+                            if statement.strip():
+                                db.execute(statement)
+                        db.execute("PRAGMA user_version = 4")
                     db.commit()
                 except BaseException:
                     db.rollback()

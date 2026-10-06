@@ -41,6 +41,7 @@ LLM API, 임베딩 API, LangGraph, 내부 노션/파일 검색을 추가하지 �
    v2 검토자는 실제 렌더링된 그림·표·배치를 확인하고 validate_presentation의 실제 읽은 presentation_hash도 전달한다.
    v3 검토자는 get_document_preview로 지정 버전을 읽고 current=true를 확인한 뒤 Markdown의
    중첩 토글 자식·본문·코드·표·도식·캡션·연결된 그림·전체 순서를 확인한다. 그 후보의 presentation_hash로 검토한다.
+   한국어 표현 검수 정책이 있는 작업은 같은 후보의 korean_expression_targets 전체를 각자의 담당 기준으로 검토한다.
    검토 파일은 Markdown으로 만들며 HTML 생성이나 브라우저 화면 검증은 요구하지 않는다.
 8. 추가 조사는 먼저 request_research_followup을 호출한다. 작업 전체 최대 2회다.
    allowed=false이면 추가 조사 반복을 중단하고 해결되지 않은 항목을 사용자에게 제시한다.
@@ -130,6 +131,61 @@ LLM API, 임베딩 API, LangGraph, 내부 노션/파일 검색을 추가하지 �
 - 제목·요약·목차·본문·자료·자산 변경은 새 미리보기와 양쪽 검토를 요구한다. 동일 후보 재준비는 파일만 복구하며 승인을 무효화하지 않는다.
 - 미리보기 파일 직접 수정은 DB 후보를 바꾸지 않는다. 손상된 파일은 같은 입력과 최신 후보 버전으로 재준비한다.
 - 기존 작업의 프로필이나 규칙을 v3로 자동 전환하지 않는다. 새 형식이 필요하면 새 작업으로 진행한다.
+
+## 시각 자료 판단과 확보 결과 (신규 v3 정책)
+
+- 이 절차는 get_document_blueprint의 저장된 프로필에 visual_assessment_policy_version=1이 있는 작업에만 적용한다.
+  값이 없는 기존 legacy_v1/study_readable_v2/study_topic_v3 작업에는 새 필드·검토 의무를 요구하지 않는다.
+- foundation.examples와 advanced.cases의 각 항목은 visual_assessments 평가 하나를 갖는다. 다른 본문 항목은 필요하면 추가한다.
+  평가 ID·대상 item_id·관찰할 learning_goal·preferred_kind(image/diagram/text)·rationale·근거·확보 계획을 작성 역할이 저장한다.
+  초기 pending 초안은 허용하며 최종 후보에는 selected_kind와 실제 자료/설명 연결을 반영하고 resolved로 저장한다.
+- 이미지 불필요 판단과 확보 실패는 구분한다. 최초 판단과 다른 선택에는 change_reason을 남긴다.
+  이미지 요청은 실제 메인 결과 result_ids와 연결하고, 대체 시 설명 위치와 독자용 reader_note를 기록한다.
+- research는 최초 조사에 공식 이미지 후보·실습 대상·재현 절차·환경·이용 조건을 포함한다.
+  메인은 양쪽 추가 요청을 모아 기존 근거를 재사용하고, 추가 검색은 request_research_followup과 작업 전체 최대 2회 한도를 따른다.
+- 메인은 도구·환경을 실제 확인하고 캡처한다. 성공 시 register_visual_asset 이후 record_visual_acquisition으로 즉시 결과를 저장한다.
+  실패 시에도 실제 수행 절차 또는 확인한 제약·환경·시각을 기록한다. 이 기록은 본문과 별도이며 메인만 저장한다.
+  결과 ID는 불변이다. 동일 결과 재제출은 멱등 처리하고 변경된 결과는 새 ID로 저장한다.
+- 중단 후 get_visual_acquisitions로 결과와 등록 자산을 먼저 확인한다. 작성 역할이 결과를 읽고 자기 부분에 반영한다.
+  메인의 최신 결과가 반영되지 않은 요청은 최종 후보를 막는다. 대상 본문·요청이 바뀌면 적합성을 다시 확인해 새 결과를 기록한다.
+  foundation 반영으로 버전이 바뀌면 advanced도 최신 기초 버전과 내용을 갱신한다.
+- prepare_document_preview는 평가표와 확보 결과를 동일 후보에 고정한다. 양쪽 검토자는 get_document_preview의 지정 버전을 읽고
+  current=true 및 해당 후보의 presentation_hash를 확인한 뒤 전체 평가를 검토한다.
+  record_cross_review의 reviewed_visual_assessments에 양쪽 모든 평가의 section/assessment_id를 누락 없이 기록한다.
+- Python은 필드·참조·상태·해시·검토 범위만 검사한다. 관찰 목표 달성·표현 적합성·대체 사유·핵심 근거 유지는 Codex가 판단한다.
+  등록 이미지가 없거나 확보 불가 사유를 기록했다는 사실만으로 생략을 정당화하지 않는다.
+  대체 후에도 핵심 주장이나 실제 사례의 근거가 부족하면 blocking 검토로 통합을 막는다.
+- 내부 판단·시도 상세는 검토 자료에 두고, 발행 본문에는 이미지·캡션과 필요한 실습 전제·생략 설명만 관련 항목에 한 번 배치한다.
+  평가·확보 결과·본문·자산 변경은 새 후보·양쪽 검토·사용자 승인을 요구한다. 동일 후보 파일 복구는 기존 승인을 보존한다.
+  notion_writer는 독자용 설명과 승인 자산을 그대로 발행하고 실제 재조회로 검증한다.
+
+## 한국어 표현 검수 (신규 v3 정책)
+
+- 이 절차는 get_document_blueprint의 저장된 프로필에 korean_expression_review_version=1이 있는 신규 study_topic_v3 작업에만 적용한다.
+  값이 없는 기존 legacy_v1/study_readable_v2/study_topic_v3 작업에는 새 검수 필드·검토 의무·완료 조건을 요구하지 않는다.
+- 연구·작성·교차 검토는 기존 research/foundation/advanced 역할과 run-role 실행 방식을 유지한다. 별도 편집 에이전트나 모델 API를 추가하지 않는다.
+  research는 중요한 영어 표현의 실제 원문 발췌·앞뒤 문맥·위치를 기존 출처 evidence에 보존한다. 검색 요약으로 원문을 대신하지 않는다.
+  원문이 부족하면 메인이 양쪽 요청을 모아 request_research_followup을 호출하며 작업 전체 최대 2회 한도를 유지한다.
+- 작성 역할은 초안에서 자기 부분의 한국어를 점검한다. foundation은 최종 후보 전체의 readability를 담당하며 직역체·긴 문장·주어/대상/지시어의 모호성·용어 풀이·표기 일관성을 확인한다.
+  advanced는 최종 후보 전체의 meaning을 담당하며 저장된 주장·원문 근거를 대조해 가능성·의무·권고·조건·예외·인과관계·비교 대상을 보존했는지 확인한다.
+  자연스럽게 고치기 위해 원문 조건이나 한계를 삭제하지 않는다. 정착된 기술 용어는 유지하고 첫 등장에 쉬운 설명을 붙이며 모호하면 원어를 병기한다.
+  코드 구문·프로토콜 키워드·제품명·제품 버전·실행 명령·URL·출처 제목/발췌·인용한 영어 원문은 보존한다.
+  본문에 섞인 영어가 직접 인용인지 원문을 대조해 판단한다. Python은 인용 여부를 자동 판별하지 않으며 영어 비율로 대상을 임의 제외하지 않는다.
+- 양쪽 검토자는 get_document_preview의 지정 버전을 읽고 current=true와 해당 후보의 presentation_hash를 확인한다.
+  korean_expression_targets의 모든 ref/text를 실제 읽고 제목·요약·목차·목표·선수지식·양쪽 본문·용어의 필요성/예시·흔한 오해·사례 interpretation·표 셀·그림 캡션·alt_text·reader_note·질문·답안을 검토한다.
+  각 대상은 scope(document/foundation/advanced), item_id, field 점 경로로 식별한다. 제목·요약의 item_id는 null이며 목차 제목은 그룹의 안정 ID를 사용한다.
+  summary.0.text나 rows.0.cells.1 같은 경로는 해당 후보 안에서만 유효하다.
+  반환된 ref를 그대로 사용하고 후보의 목록을 임의 축약하거나 없는 대상을 추가하지 않는다. Mermaid 내부 한국어 라벨은 새 텍스트 목록 추출 밖이므로 기존 시각 교차 검토에서 표현도 확인한다.
+- record_cross_review.korean_expression_review에는 policy_version=1, focus(foundation은 readability, advanced는 meaning), reviewed_targets(후보의 모든 ref)를 기록한다.
+  지적은 기존 findings에 severity·location·comment를 기록하고 expression_detail로 실제 target·problem_kind·current_text·suggested_text를 제공한다.
+  problem_kind는 readability/ambiguity/terminology/consistency/meaning_change이며 meaning_change에는 실제 원문 evidence_refs(source_id, evidence_index)와 severity=blocking이 필수다.
+  current_text는 해당 후보 대상의 실제 문제 구절이다. 문제 문장·문제 이유·수정 제안·원문 의미 보존 근거를 구분한다.
+- 의미가 달라지거나 개념 이해를 방해하는 문제는 blocking으로 통합을 막는다. 이해 가능한 문장의 문체 개선은 advisory다.
+  Python은 정책·담당 기준·검토 범위·후보·참조만 검사한다. 문장의 자연스러움과 기술적 의미 보존은 Codex가 판단하며 검수 기록이 실제 독해나 의미의 정확성을 입증하지 않는다.
+- 메인은 문서 전체 용어 표기를 조정하고 본문 수정 요청을 원작성자에게 배정한다. 검토자는 상대 본문을 직접 수정하지 않는다.
+  제목·요약·목차는 메인, 작성 본문은 담당 역할이 수정한다. foundation 변경 시 advanced도 foundation_version과 내용을 갱신한다.
+  표현만 수정해도 새 후보·양쪽 검토·사용자 승인이 필요하다. 동일 후보 파일 복구는 기존 승인을 보존한다. 미리보기 파일 직접 수정은 승인 대상을 바꾸지 않는다.
+- notion_writer는 승인된 한국어 표현을 변경 없이 발행하고 실제 재조회로 본문 구조와 표현을 확인한다. 승인 후 표현 문제를 발견하면 직접 수정하지 않고 메인에 보고한다.
 
 ## 승인·Notion 발행
 

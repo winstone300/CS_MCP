@@ -2,6 +2,7 @@
 
 import json
 
+from .expression_review import expression_review_policy, expression_targets
 from .models import AdvancedSection, DocumentPlanInput, FoundationSection
 from .render import digest
 from .storage import dumps, event, now
@@ -158,6 +159,10 @@ class TopicService:
         # Rendering/file IO must never hold the database write lock.
         rendered = cached or render_topic(content, foundation, advanced, sources, profile, assets)
         if not unchanged:
+            if "visual_assessments" in report:
+                rendered["visual_assessment_review"] = report["visual_assessments"]
+            if expression_review_policy(profile):
+                rendered["korean_expression_targets"] = expression_targets(content, foundation, advanced, profile)
             rendered["warnings"] = outline["warnings"]
             if not 3 <= len(content.summary) <= 5:
                 rendered["warnings"].append(
@@ -227,7 +232,7 @@ class TopicService:
                 fail("preview_integrity", "저장한 미리보기 묶음이 변경되었습니다.")
             current = self._presentation(db, job)
             rendered = json.loads(row["rendered"])
-            return {
+            result = {
                 "version": row["version"],
                 "presentation_hash": row["presentation_hash"],
                 "plan_hash": digest(row["plan"]),
@@ -241,3 +246,8 @@ class TopicService:
                     for key, path in self._preview_paths(job_id, row["version"]).items()
                 },
             }
+            if "visual_assessment_review" in rendered:
+                result["visual_assessments"] = rendered["visual_assessment_review"]
+            if "korean_expression_targets" in rendered:
+                result["korean_expression_targets"] = rendered["korean_expression_targets"]
+            return result

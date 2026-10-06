@@ -5,6 +5,7 @@ from collections import Counter
 from copy import deepcopy
 
 from .models import AdvancedSection, Explanation, FoundationSection, Source
+from .visual_assessment import assessment_issues, assessment_policy
 
 
 def profile_snapshot(name: str = "study_readable_v2") -> dict:
@@ -22,6 +23,28 @@ def profile_snapshot(name: str = "study_readable_v2") -> dict:
         profile["roles"]["main"] = "목차·요약을 구성하고 prepare_document_preview로 교차 검토할 불변 후보를 준비합니다. 검토한 후보만 save_draft로 승격합니다."
         profile["roles"]["advanced"] += " 전체 개념 연결 시나리오도 근거와 함께 작성합니다."
         profile["recommendations"]["toggle_depth"] = 2
+        profile["visual_assessment_policy_version"] = 1
+        profile["guidance"]["visual_assessments"] = (
+            "foundation.examples와 advanced.cases는 항목마다 표현 판단을 기록합니다. "
+            "이미지·도식·텍스트 선택과 메인의 확보 결과를 구분하고 같은 후보에서 대체 설명의 적합성까지 검토합니다."
+        )
+        profile["visual_assessment_required_targets"] = {"foundation": ["examples"], "advanced": ["cases"]}
+        profile["roles"]["main"] += " 실제 확보 결과를 record_visual_acquisition으로 즉시 저장하고 작성 역할에 반영을 요청합니다."
+        profile["roles"]["foundation"] += " 모든 examples 항목의 표현 판단과 확보 결과 연결을 저장합니다."
+        profile["roles"]["advanced"] += " 모든 cases 항목의 표현 판단과 확보 결과 연결을 저장합니다."
+        profile["korean_expression_review_version"] = 1
+        profile["korean_expression_review_focus"] = {"foundation": "readability", "advanced": "meaning"}
+        profile["guidance"]["korean_expression_review"] = (
+            "동일 후보의 제목·요약·목차·본문·표·캡션·질문·답안을 모두 검수합니다. "
+            "foundation은 한국어 가독성·용어 설명·표기 일관성, advanced는 원문 의미·조건·가능성·예외를 확인합니다. "
+            "의미 변화·개념 이해를 방해하는 문제는 blocking, 문체 개선은 advisory입니다. "
+            "원문·코드·URL·제품명은 보존하고 Python은 검토 기록의 범위·참조만 검사합니다."
+        )
+        profile["roles"]["foundation"] += " 전체 후보의 한국어 가독성 검수와 대상 목록을 교차 검토에 기록합니다."
+        profile["roles"]["advanced"] += " 전체 후보의 원문 의미 보존 검수와 대상 목록을 교차 검토에 기록합니다."
+        profile["roles"]["research"] += " 중요한 영어 표현의 원문·문맥·위치를 보존합니다."
+        profile["roles"]["main"] += " 용어 표기를 통일하고 표현 수정은 담당 작성자에 배정합니다."
+        profile["roles"]["notion_writer"] += " 승인된 한국어 표현을 그대로 발행·재조회합니다."
         return profile
     if name not in {"legacy_v1", "study_readable_v2"}:
         raise ValueError(f"알 수 없는 문서 프로필: {name}")
@@ -140,6 +163,10 @@ def presentation_issues(
     for section in (foundation, advanced):
         if section is None:
             continue
+        if assessment_policy(profile):
+            assessment_report = assessment_issues(section, sources)
+            result["errors"].extend(assessment_report["errors"])
+            result["manual_review"].extend(assessment_report["manual_review"])
         items = body_items(section)
         claims = {claim.id: claim for claim in section.claims}
         item_ids = {item.id for item in items if item.id}

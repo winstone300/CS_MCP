@@ -1,3 +1,4 @@
+import io
 import json
 import re
 import runpy
@@ -16,12 +17,49 @@ from cs_study_mcp.runner import (
     check_publication_approval,
     config_arguments,
     load_role,
+    resolve_codex,
     run_role,
     validate_probe,
     worker_slot,
 )
 from cs_study_mcp.server import TOOLS_BY_ROLE
 from cs_study_mcp.service import WorkflowError
+
+
+class _MockStdin(io.BytesIO):
+    def __init__(self, process):
+        super().__init__()
+        self.process = process
+
+    def close(self):
+        self.process.communicate(input=self.getvalue().decode("utf-8"))
+        super().close()
+
+
+class _MockProcess:
+    """Adapt the existing prompt-oriented mocks to the runner's streaming pipes."""
+
+    @property
+    def stdin(self):
+        if not hasattr(self, "_stdin"):
+            self._stdin = _MockStdin(self)
+        return self._stdin
+
+    @property
+    def stdout(self):
+        return io.BytesIO(b"")
+
+    @property
+    def stderr(self):
+        return io.BytesIO(b"")
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+
+@pytest.fixture(autouse=True)
+def no_live_version_probe(monkeypatch):
+    monkeypatch.setattr("cs_study_mcp.runner.codex_version", lambda _: "test-cli")
 
 
 def configure(root):
@@ -34,6 +72,42 @@ def overrides(command):
     return tomllib.loads("\n".join(lines))
 
 
+def test_role_uses_desktop_runtime_instead_of_older_path_cli(service, monkeypatch):
+    configure(service.root)
+    runtime = service.root / "desktop codex.exe"
+    runtime.touch()
+    monkeypatch.setenv("CODEX_CLI_PATH", str(runtime))
+    monkeypatch.setattr("cs_study_mcp.runner.shutil.which", lambda _: "old-codex.exe")
+    job_id = service.create_study("런타임 선택 회귀 테스트")["job_id"]
+    captured = {}
+
+    class Process(_MockProcess):
+        returncode = 0
+
+        def __init__(self, command, **kwargs):
+            captured["command"] = command
+            Path(command[command.index("-o") + 1]).write_text("진단 보고서", encoding="utf-8")
+
+        def communicate(self, input):
+            pass
+
+    monkeypatch.setattr("cs_study_mcp.runner.subprocess.Popen", Process)
+    result = run_role(service.root, "foundation", job_id, "런타임 확인")
+    assert captured["command"][0] == str(runtime.resolve())
+    assert result["codex_executable"] == str(runtime.resolve())
+    assert overrides(captured["command"])["agents"]["enabled"] is False
+
+
+@pytest.mark.parametrize("runtime", [None, "missing-codex.exe"])
+def test_codex_runtime_falls_back_to_path_when_unavailable(monkeypatch, runtime):
+    if runtime is None:
+        monkeypatch.delenv("CODEX_CLI_PATH", raising=False)
+    else:
+        monkeypatch.setenv("CODEX_CLI_PATH", runtime)
+    monkeypatch.setattr("cs_study_mcp.runner.shutil.which", lambda _: "path-codex.exe")
+    assert resolve_codex() == "path-codex.exe"
+
+
 @pytest.mark.parametrize("role", ROLES)
 def test_role_cli_applies_actual_role_not_parent_tools(service, role):
     configure(service.root)
@@ -43,6 +117,17 @@ def test_role_cli_applies_actual_role_not_parent_tools(service, role):
     assert set(config["mcp_servers"]["cs_study"]["enabled_tools"]) == TOOLS_BY_ROLE[role]
     assert "create_study" not in config["mcp_servers"]["cs_study"]["enabled_tools"]
     assert config["agents"]["enabled"] is False
+    assert config["features"]["apps"] is False
+    assert config["features"]["hooks"] is True
+    assert tomllib.loads((service.root / ".codex/config.toml").read_text(encoding="utf-8"))["features"]["hooks"] is False
+    assert set(config["hooks"]) == {"SessionStart", "Stop", "SessionEnd", "Interrupt"}
+    assert "hooks" not in tomllib.loads((service.root / ".codex/config.toml").read_text(encoding="utf-8"))
+    for groups in config["hooks"].values():
+        handler = groups[0]["hooks"][0]
+        assert handler["type"] == "command"
+        assert "cs_study_mcp.usage_hook" in handler["command"]
+        assert service.root.as_posix() in handler["command"]
+        assert handler["timeout"] == 3
     assert config["web_search"] == ("live" if role == "research" else "disabled")
     assert config["mcp_servers"]["notion"]["enabled"] == (role == "notion_writer")
     assert "--dangerously-bypass-approvals-and-sandbox" not in command
@@ -54,6 +139,17 @@ def test_toml_argv_quotes_values_without_shell_interpolation():
     args = config_arguments(values)
     assert args[1].startswith("mcp_servers.cs_study.env.TEST_KEY=")
     assert overrides(["codex", *args]) == values
+
+
+def test_cli_serializes_hook_arrays_as_toml_tables_not_json_objects():
+    values = {"hooks": {"Stop": [{"hooks": [{
+        "type": "command", "command": '한글 "quotes" `$(x)`', "timeout": 3,
+    }]}]}}
+    args = config_arguments(values)
+    assert args[1].startswith("hooks.Stop=")
+    assert overrides(["codex", *args]) == values
+    with pytest.raises(ValueError, match="null"):
+        config_arguments({"hooks": {"Stop": [{"hooks": [None]}]}})
 
 
 def test_cli_rejects_ambiguous_quoted_keys():
@@ -116,6 +212,7 @@ def test_writer_check_cannot_expose_publication_or_notion_write(service):
         "notion-fetch",
         "notion-get-tool-access",
     }
+    assert config["features"]["apps"] is False
 
 
 def test_writer_refuses_before_starting_codex_without_approval(service, monkeypatch):
@@ -155,7 +252,7 @@ def test_role_run_records_report_but_does_not_mark_study_complete(service, monke
     before = service.get_study(job_id)
     captured = {}
 
-    class Process:
+    class Process(_MockProcess):
         returncode = 0
 
         def __init__(self, command, **kwargs):
@@ -187,7 +284,7 @@ def test_check_cannot_be_overridden_with_task_text(service, monkeypatch):
     job_id = service.create_study("진단")["job_id"]
     captured = {}
 
-    class Process:
+    class Process(_MockProcess):
         returncode = 0
 
         def __init__(self, command, **kwargs):
@@ -270,6 +367,14 @@ def test_presentation_prompt_upgrade_preserves_custom_settings_and_is_idempotent
     assert upgraded["developer_instructions"].count("[CS-STUDY PRESENTATION V2]") == 1
     assert upgraded["developer_instructions"].count("[CS-STUDY TOPIC V3]") == 1
     assert "legacy_v1" in upgraded["developer_instructions"]
+    assert "visual_assessment_policy_version=1" in upgraded["developer_instructions"]
+    assert "korean_expression_review_version=1" in upgraded["developer_instructions"]
+    if role in {"foundation", "advanced"}:
+        assert "korean_expression_targets" in upgraded["developer_instructions"]
+        assert "expression_detail" in upgraded["developer_instructions"]
+        assert f"focus={'readability' if role == 'foundation' else 'meaning'}" in upgraded["developer_instructions"]
+        assert "reviewed_visual_assessments" in upgraded["developer_instructions"]
+        assert "result_ids" in upgraded["developer_instructions"]
     if role in {"foundation", "advanced"}:
         assert "Markdown" in upgraded["developer_instructions"]
         assert "HTML 파일 생성이나 브라우저 화면 검증은 요구하지 않는다" in upgraded["developer_instructions"]
@@ -301,7 +406,7 @@ def test_check_keeps_study_and_assets_unchanged_with_new_presentation_tools(
     )
     captured = {}
 
-    class Process:
+    class Process(_MockProcess):
         returncode = 0
 
         def __init__(self, command, **kwargs):
@@ -404,7 +509,7 @@ def test_presentation_diagnostic_forces_check_and_never_uses_mutating_task(servi
     before = service.get_study(job_id)
     captured = {}
 
-    class Process:
+    class Process(_MockProcess):
         returncode = 0
 
         def __init__(self, command, **kwargs):

@@ -9,6 +9,7 @@ from html import escape
 from pathlib import Path
 
 from .models import AdvancedSection, DraftInput, FoundationSection, OutlineGroup, Source
+from .visual_assessment import assessment_policy
 
 
 def _label(value: str) -> str:
@@ -165,9 +166,18 @@ def render_readable(
                     )
                     block(f"**이용 조건:** {screenshot.usage_note}")
 
+    def assessment_note(section: FoundationSection | AdvancedSection, item_id: str) -> None:
+        if assessment_policy(profile):
+            for assessment in section.visual_assessments:
+                if assessment.item_id == item_id:
+                    source_cite(assessment.source_ids)
+                    if assessment.reader_note:
+                        body(section, assessment.reader_note, assessment.claim_ids)
+
     def after(section: FoundationSection | AdvancedSection, item_id: str | None) -> None:
         if item_id is None:
             return
+        assessment_note(section, item_id)
         if isinstance(section, FoundationSection):
             for misconception in section.misconceptions:
                 if misconception.related_item_id == item_id:
@@ -175,6 +185,7 @@ def render_readable(
                     if misconception.key_point:
                         block(f"**{misconception.key_point}**")
                     body(section, misconception.body, misconception.claim_ids)
+                    assessment_note(section, misconception.id)
                     materials(section, misconception.id)
         materials(section, item_id)
 

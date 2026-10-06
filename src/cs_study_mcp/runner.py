@@ -5,6 +5,8 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+import threading
 import tomllib
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,8 +16,20 @@ from .render import digest
 from .server import TOOLS_BY_ROLE
 from .service import StudyService, WorkflowError
 from .storage import now
+from .usage import atomic_json, rebuild_job, rebuild_run
+from .usage_hook import usage_hooks
 
 ROLES = tuple(role for role in TOOLS_BY_ROLE if role != "main")
+
+
+def resolve_codex() -> str | None:
+    """Prefer the desktop runtime to an unrelated, older CLI on PATH."""
+    runtime = os.environ.get("CODEX_CLI_PATH")
+    if runtime and Path(runtime).is_file():
+        return str(Path(runtime).resolve())
+    return shutil.which("codex")
+
+
 CHECK_SCHEMA = {
     "type": "object",
     "properties": {
@@ -119,8 +133,19 @@ def load_role(root: Path, role: str) -> dict:
 
 
 def config_arguments(values: dict) -> list[str]:
-    """Serialize TOML scalar/array overrides into argv, never shell command strings."""
+    """Serialize TOML overrides into argv, including arrays of inline tables."""
     result = []
+
+    def toml_value(value):
+        if isinstance(value, dict):
+            return "{" + ", ".join(
+                f"{json.dumps(key)} = {toml_value(child)}" for key, child in value.items()
+            ) + "}"
+        if isinstance(value, list):
+            return "[" + ", ".join(toml_value(child) for child in value) + "]"
+        if value is None:
+            raise ValueError("Codex 구성에는 null 값을 전달할 수 없습니다.")
+        return json.dumps(value, ensure_ascii=False)
 
     def visit(path: str, value):
         if isinstance(value, dict):
@@ -131,9 +156,7 @@ def config_arguments(values: dict) -> list[str]:
                     raise ValueError(f"CLI 설정 키에는 영문·숫자·밑줄·하이픈만 지원합니다: {key}")
                 visit(f"{path}.{key}" if path else key, child)
         else:
-            if value is None:
-                raise ValueError("Codex 구성에는 null 값을 전달할 수 없습니다.")
-            result.extend(["-c", f"{path}={json.dumps(value, ensure_ascii=False)}"])
+            result.extend(["-c", f"{path}={toml_value(value)}"])
 
     visit("", values)
     return result
@@ -159,6 +182,12 @@ def build_command(
             overrides[key] = value
     # A role worker must not recursively delegate or become the main agent.
     overrides["agents"] = {"enabled": False}
+    # Hosted app tools can expose web/search independently of web_search.
+    # Roles use only their explicit MCP connections and research's native web.
+    overrides["features"] = {"apps": False, "hooks": True}
+    # Ordinary chats never register our hooks. Only this child invocation gets
+    # them; Codex retains the normal hook trust review and other hook sources.
+    overrides["hooks"] = usage_hooks(root)
     if check and role == "notion_writer":
         overrides["mcp_servers"]["notion"]["enabled_tools"] = [
             "notion-fetch",
@@ -168,6 +197,7 @@ def build_command(
     return [
         codex,
         "exec",
+        "--json",
         "--ephemeral",
         "-C",
         str(root),
@@ -237,6 +267,111 @@ def worker_slot(root: Path):
     )
 
 
+def codex_version(codex: str) -> str | None:
+    try:
+        result = subprocess.run(
+            [codex, "--version"], capture_output=True, text=True, encoding="utf-8", timeout=5,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def capture_process(process, prompt: str, directory: Path, errors: list[str]) -> None:
+    """Drain both pipes even after a log write fails; never buffer the whole session."""
+    def drain(stream, path):
+        destination = None
+        try:
+            destination = path.open("wb")
+        except OSError as exc:
+            errors.append(f"stream_open_failed:{path.name}:{type(exc).__name__}")
+        try:
+            read = getattr(stream, "read1", stream.read)
+            while chunk := read(8192):
+                if destination is not None:
+                    try:
+                        destination.write(chunk)
+                        destination.flush()
+                    except OSError as exc:
+                        errors.append(f"stream_write_failed:{path.name}:{type(exc).__name__}")
+                        try:
+                            destination.close()
+                        except OSError:
+                            pass
+                        destination = None
+        except (OSError, ValueError) as exc:
+            errors.append(f"stream_read_failed:{path.name}:{type(exc).__name__}")
+        finally:
+            if destination is not None:
+                try:
+                    destination.close()
+                except OSError as exc:
+                    errors.append(f"stream_close_failed:{path.name}:{type(exc).__name__}")
+            stream.close()
+
+    threads = [
+        threading.Thread(target=drain, args=(process.stdout, directory / "events.jsonl"), daemon=True),
+        threading.Thread(target=drain, args=(process.stderr, directory / "execution.log"), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    try:
+        try:
+            process.stdin.write(prompt.encode("utf-8"))
+            process.stdin.close()
+        except BrokenPipeError:
+            # A worker can fail during startup before accepting the prompt.
+            pass
+        process.wait()
+    except BaseException:
+        # Cleanup must not replace the original interruption/exception.
+        try:
+            process.terminate()
+            process.wait(timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            try:
+                process.kill()
+                process.wait(timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                errors.append("process_cleanup_failed")
+        raise
+    finally:
+        for thread in threads:
+            thread.join(timeout=5)
+            if thread.is_alive():
+                errors.append("stream_drain_timeout")
+
+
+def finalize_usage(root: Path, directory: Path, metadata: dict) -> None:
+    """Observability failures cannot change the worker outcome, including exceptions."""
+    try:
+        atomic_json(directory / "run.json", metadata)
+    except Exception as exc:
+        metadata["collection_errors"].append(f"run_metadata_save_failed:{type(exc).__name__}")
+    try:
+        record = rebuild_run(root, metadata["run_id"], metadata=metadata)
+        metadata["usage_status"] = record["usage_status"]
+        metadata["hook_status"] = record["hook_status"]
+        metadata["usage_collection_errors"] = record["collection_errors"]
+        metadata["usage_path"] = str(directory / "usage.md")
+        metadata["usage_report_status"] = "saved"
+    except Exception as exc:
+        metadata["usage_report_status"] = "failed"
+        metadata["collection_errors"].append(f"run_usage_save_failed:{type(exc).__name__}:{exc}")
+    try:
+        target = rebuild_job(root, metadata["job_id"], refresh_runs=False)
+        metadata["job_usage_path"] = str(target)
+    except Exception as exc:
+        metadata["collection_errors"].append(f"job_usage_save_failed:{type(exc).__name__}:{exc}")
+    try:
+        atomic_json(directory / "run.json", metadata)
+    except Exception:
+        pass
+    for error in dict.fromkeys(metadata["collection_errors"] + metadata.get("usage_collection_errors", [])):
+        print(f"사용량 수집 오류: {error}", file=sys.stderr)
+
+
 def run_role(
     root: Path,
     role: str,
@@ -253,14 +388,14 @@ def run_role(
             raise ValueError("표현 형식 읽기 진단은 notion_writer만 수행합니다.")
         check = True
     root = root.resolve()
-    load_role(root, role)
+    role_config = load_role(root, role)
     study = StudyService(root).get_study(job_id)
     if role == "notion_writer" and not check:
         check_publication_approval(study)
         StudyService(root).validate_publication_bundle(job_id)
     if not check and not task.strip():
         raise ValueError("담당 작업을 --task 또는 --task-file로 지정하세요.")
-    codex = shutil.which("codex")
+    codex = resolve_codex()
     if not codex:
         raise ValueError("PATH에서 Codex CLI를 찾을 수 없습니다.")
     run_id = str(uuid4())
@@ -270,6 +405,13 @@ def run_role(
     command = build_command(
         root, role, output, check=check, model=model, reasoning_effort=reasoning_effort, codex=codex
     )
+    hook_environment = {
+        "CS_STUDY_RUN_ID": run_id, "CS_STUDY_JOB_ID": job_id, "CS_STUDY_ROLE": role,
+        "PYTHONUTF8": "1",
+    }
+    # Hooks use the session's shell environment. Pass only our non-secret context
+    # explicitly, without widening the user's inheritance or permission policy.
+    command[-1:-1] = config_arguments({"shell_environment_policy": {"set": hook_environment}})
     if check:
         schema_path = directory / "check-schema.json"
         schema_path.write_text(json.dumps(CHECK_SCHEMA), encoding="utf-8")
@@ -328,6 +470,14 @@ def run_role(
         "run_id": run_id,
         "job_id": job_id,
         "role": role,
+        "codex_executable": codex,
+        "codex_version": codex_version(codex),
+        "requested_model": role_config.get("model", model),
+        "model_source": "role_toml" if "model" in role_config else "parent_argument" if model else "cli_default",
+        "requested_reasoning_effort": role_config.get("model_reasoning_effort", reasoning_effort),
+        "reasoning_source": "role_toml" if "model_reasoning_effort" in role_config else "parent_argument" if reasoning_effort else "cli_default",
+        "hooks_expected": True,
+        "collection_errors": [],
         "check_only": check,
         "inspect_presentation": inspect_presentation,
         "status": "running",
@@ -339,25 +489,19 @@ def run_role(
     }
     with worker_slot(root):
         meta_path = directory / "run.json"
-        meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_json(meta_path, metadata)
         print(f"역할 실행 {run_id}: {directory}", flush=True)
         try:
-            with (directory / "execution.log").open("w", encoding="utf-8") as log:
-                process = subprocess.Popen(
-                    command,
-                    stdin=subprocess.PIPE,
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    cwd=root,
-                )
-                try:
-                    process.communicate(input=prompt)
-                except BaseException:
-                    process.terminate()
-                    process.wait(timeout=10)
-                    raise
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=root,
+                env={**os.environ, **hook_environment},
+            )
+            capture_process(process, prompt, directory, metadata["collection_errors"])
+            metadata["output_closed"] = "stream_drain_timeout" not in metadata["collection_errors"]
             metadata["exit_code"] = process.returncode
             # Process completion is not study completion or semantic validation.
             metadata["status"] = (
@@ -375,12 +519,13 @@ def run_role(
                     metadata["status"] = "failed"
         except BaseException as exc:
             metadata["status"] = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+            if "process" in locals():
+                metadata["exit_code"] = process.returncode
+                metadata["output_closed"] = "stream_drain_timeout" not in metadata["collection_errors"]
             raise
         finally:
             metadata["finished_at"] = now()
-            meta_path.write_text(
-                json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            finalize_usage(root, directory, metadata)
     if metadata["status"] != "finished":
         raise WorkflowError(
             "worker_failed", f"실행 로그를 확인하세요: {directory / 'execution.log'}"

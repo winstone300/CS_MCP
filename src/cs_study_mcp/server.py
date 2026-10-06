@@ -17,6 +17,7 @@ from .models import (
     Role,
     SectionKind,
     Source,
+    VisualAcquisitionInput,
 )
 from .service import StudyService, WorkflowError
 from .validation import question_blueprint
@@ -32,6 +33,7 @@ READ_TOOLS = {
     "validate_presentation",
     "get_publication_payload",
     "get_document_preview",
+    "get_visual_acquisitions",
 }
 TOOLS_BY_ROLE: dict[str, set[str]] = {
     "main": (READ_TOOLS - {"get_publication_payload"})
@@ -43,6 +45,7 @@ TOOLS_BY_ROLE: dict[str, set[str]] = {
         "prepare_visual_assets",
         "register_visual_asset",
         "prepare_document_preview",
+        "record_visual_acquisition",
     },
     "research": {"get_runtime_info", "get_study", "save_research", "get_document_blueprint"},
     "foundation": {
@@ -56,6 +59,7 @@ TOOLS_BY_ROLE: dict[str, set[str]] = {
         "record_cross_review",
         "get_document_blueprint",
         "validate_presentation",
+        "get_visual_acquisitions",
     },
     "advanced": {
         "get_document_preview",
@@ -68,6 +72,7 @@ TOOLS_BY_ROLE: dict[str, set[str]] = {
         "record_cross_review",
         "get_document_blueprint",
         "validate_presentation",
+        "get_visual_acquisitions",
     },
     "notion_writer": {
         "get_runtime_info",
@@ -154,8 +159,16 @@ def create_server(root: Path, role: Role = "main") -> FastMCP:
         return service.validate_presentation(job_id)
 
     def register_visual_asset(job_id: str, path: str) -> dict[str, Any]:
-        """메인이 프로젝트 내부의 공개 스크린샷 원본을 불변 자산으로 등록합니다. 출처·이용 조건은 부분 문서의 screenshot에 기록하세요."""
+        """메인이 프로젝트 내부의 공개 이미지·직접 캡처 원본을 불변 자산으로 등록합니다. 새 정책에서는 확보 결과도 즉시 기록하세요. 출처·이용 조건은 부분 문서의 screenshot에 연결합니다."""
         return service.register_visual_asset(job_id, path)
+
+    def record_visual_acquisition(job_id: str, content: VisualAcquisitionInput) -> dict[str, Any]:
+        """메인이 실제 확보·제약 확인 직후 불변 결과를 기록합니다. 본문은 수정하지 않습니다. 출처와 성공 자산은 먼저 등록하세요."""
+        return service.record_visual_acquisition(job_id, content)
+
+    def get_visual_acquisitions(job_id: str) -> dict[str, Any]:
+        """저장된 확보 결과와 등록 자산을 읽습니다. 중단 후 기존 자산을 확인하고 작성 역할이 자기 부분에 반영하세요."""
+        return service.get_visual_acquisitions(job_id)
 
     def prepare_visual_assets(job_id: str, expected_versions: dict[str, int]) -> dict[str, Any]:
         """메인이 읽은 foundation/advanced 버전의 도식을 로컬 렌더링합니다. 반환된 실제 그림을 확인한 뒤 교차 검토하세요. Notion 업로드는 하지 않습니다."""
@@ -174,7 +187,7 @@ def create_server(root: Path, role: Role = "main") -> FastMCP:
         return service.get_publication_payload(job_id, attempt_id)
 
     def record_cross_review(job_id: str, review: CrossReview) -> dict[str, Any]:
-        """상대 결과를 원문과 교차 검토한 의견을 기록합니다. 읽은 양쪽 버전과 research_revision을 지정하세요."""
+        """읽은 양쪽 버전·research_revision·후보 해시로 교차 검토를 기록합니다. 신규 한국어 검수 정책은 역할별 focus와 후보의 모든 korean_expression_targets 참조를 요구합니다."""
         if review.reviewer != role:
             raise WorkflowError(
                 "role_forbidden", "다른 역할의 검토 결과를 대신 기록할 수 없습니다."
@@ -186,7 +199,7 @@ def create_server(root: Path, role: Role = "main") -> FastMCP:
         return service.prepare_document_preview(job_id, content, expected_version)
 
     def get_document_preview(job_id: str, version: int | None = None) -> dict[str, Any]:
-        """실제 읽을 v3 Markdown 미리보기 버전·본문·경로·해시와 최신 의존성 일치 여부를 조회합니다."""
+        """v3 후보의 Markdown·버전·해시·current를 조회합니다. 신규 정책은 한국어 검수용 ref/text/source_ids 목록도 제공합니다. current=true인 동일 후보 전체를 검토하세요."""
         return service.get_document_preview(job_id, version)
 
     def save_draft(job_id: str, content: DraftInput | PreviewReference) -> dict[str, Any]:
@@ -222,6 +235,8 @@ def create_server(root: Path, role: Role = "main") -> FastMCP:
         get_document_blueprint,
         validate_presentation,
         register_visual_asset,
+        record_visual_acquisition,
+        get_visual_acquisitions,
         prepare_visual_assets,
         prepare_document_preview,
         get_document_preview,

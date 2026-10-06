@@ -178,6 +178,35 @@ def canonicalize_markdown(text: str) -> list[dict[str, Any]]:
     return blocks
 
 
+def _normalize_prose_numeric_range(text: str) -> str:
+    """Accept Notion's escaped literal tilde in plain numeric-range prose.
+
+    Keep code, links, HTML and strikethrough opaque. This narrow equivalence
+    does not remove arbitrary Markdown escapes or alter a number in the range.
+    """
+    if any(marker in text for marker in ("`", "[", "]", "<", ">", "://", "~~")):
+        return text
+    return re.sub(r"(?<![\\~0-9])([0-9]+)\\~([0-9]+)(?![\\~0-9])", r"\1~\2", text)
+
+
+def _normalize_prose_half_open_interval(text: str) -> str:
+    """Accept a single escaped opening bracket in plain integer intervals.
+
+    Notion escapes literal interval brackets such as ``[2,4)`` in prose.
+    Keep numbers, closing endpoints, code, links and other escapes unchanged.
+    """
+    if any(marker in text for marker in ("`", "]", "<", ">", "://", "~~")):
+        return text
+    normalized = re.sub(
+        r"(?<![\\\[!])\\\[([0-9]+),([0-9]+)\)(?![\[(])",
+        r"[\1,\2)", text,
+    )
+    remainder = re.sub(r"(?<![\\\[!])\[[0-9]+,[0-9]+\)(?![\[(])", "", normalized)
+    if any(marker in remainder for marker in ("\\", "[", "]")):
+        return text
+    return normalized
+
+
 def _unindent_toggle_children(lines: list[str]) -> list[str]:
     """Remove a toggle tab while respecting Notion's raw code/table payloads."""
     result, index = [], 0
@@ -351,7 +380,9 @@ def _parse(lines: list[str], index: int, *, nested: bool) -> tuple[list[dict[str
         if line.startswith(("    ", "\t")):
             raise PublicationFormatError("Use fenced code; indented content is ambiguous")
         # Each nonblank plain line is kept; no semantic reflow or text deletion.
-        result.append({"type": "paragraph", "text": line})
+        result.append({"type": "paragraph", "text": _normalize_prose_numeric_range(
+            _normalize_prose_half_open_interval(line)
+        )})
         index += 1
     if nested:
         raise PublicationFormatError("Unclosed toggle")

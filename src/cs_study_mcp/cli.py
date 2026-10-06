@@ -12,6 +12,8 @@ from .settings import configured_parent, notion_id
 
 
 def doctor(root: Path) -> dict:
+    from .runner import resolve_codex
+
     checks: dict = {
         "python": sys.version.split()[0],
         "python_executable": sys.executable,
@@ -19,6 +21,7 @@ def doctor(root: Path) -> dict:
         "pydantic": importlib.metadata.version("pydantic"),
         "rules_present": (root / "AGENTS.md").is_file(),
         "codex_on_path": shutil.which("codex") is not None,
+        "codex_executable": resolve_codex(),
         "notion_parent_page_id": configured_parent(root),
         "network_checked": False,
         "notion_oauth_checked": False,
@@ -105,11 +108,21 @@ def main() -> None:
         "--reasoning-effort",
         choices=["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
     )
+    usage = sub.add_parser("usage", help="실행별/작업별 사용량 Markdown 조회")
+    usage_id = usage.add_mutually_exclusive_group(required=True)
+    usage_id.add_argument("--run-id")
+    usage_id.add_argument("--job-id")
+    usage.add_argument("--rebuild", action="store_true", help="모델 호출 없이 원본 이벤트 재처리")
     args = parser.parse_args()
     root = args.project.resolve()
     try:
         if args.command == "serve":
             create_server(root, args.role).run(transport="stdio")
+            return
+        if args.command == "usage":
+            from .usage import usage_report
+
+            print(usage_report(root, run_id=args.run_id, job_id=args.job_id, rebuild=args.rebuild))
             return
         if args.command == "configure":
             parent = notion_id(args.notion_parent)

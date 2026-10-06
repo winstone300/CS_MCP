@@ -332,7 +332,7 @@ def test_parallel_fresh_database_initialization(tmp_path):
     with ThreadPoolExecutor(max_workers=5) as pool:
         instances = list(pool.map(lambda _: StudyService(tmp_path), range(10)))
     with instances[0].db.connect() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
         assert db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
 
 

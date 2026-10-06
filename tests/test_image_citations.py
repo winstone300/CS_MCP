@@ -120,6 +120,10 @@ def test_images_are_embedded_and_all_citations_are_only_in_final_references(
 
 @pytest.mark.parametrize("profile_name", ["study_readable_v2", "study_topic_v3"])
 def test_direct_capture_upload_resume_and_readback_keep_the_approved_image(service, profile_name):
+    from visual_helpers import add_text_assessments
+
+    from cs_study_mcp.models import VisualAcquisitionInput
+
     actual = StudyService(service.root)
     job_id = actual.create_study("합성 직접 캡처 시험", presentation_profile=profile_name)["job_id"]
     actual.save_research(job_id, [sample_source()])
@@ -128,15 +132,38 @@ def test_direct_capture_upload_resume_and_readback_keep_the_approved_image(servi
     asset = actual.register_visual_asset(job_id, str(path))
     f, a = readable_sections()
     f.visuals = [screenshot(capture(), asset["hash"], f.examples[0].id)]
+    if profile_name == "study_topic_v3":
+        add_text_assessments(f, a)
+        assessment = f.visual_assessments[0]
+        assessment.preferred_kind = "image"
+        assessment.acquisition_plan = "모의 실습 화면을 직접 캡처한다."
+        assessment.status = "pending"
+        assessment.selected_kind = None
+        assessment.explanation_item_id = None
     actual.save_knowledge_section(job_id, f, 0)
     actual.save_knowledge_section(job_id, a, 0)
-    prepared = actual.prepare_visual_assets(job_id, {"foundation": 1, "advanced": 1})
+    version = 1
+    if profile_name == "study_topic_v3":
+        actual.record_visual_acquisition(job_id, VisualAcquisitionInput(
+            result_id="capture-1", section="foundation", assessment_id=assessment.id,
+            expected_section_version=1, procedure="모의 직접 캡처", environment="모의 실습 환경",
+            checked_at=capture().captured_at, outcome="acquired", asset_hash=asset["hash"], screenshot=capture(),
+        ))
+        assessment.status = "resolved"
+        assessment.selected_kind = "image"
+        assessment.result_ids = ["capture-1"]
+        assessment.visual_ids = [f.visuals[0].id]
+        actual.save_knowledge_section(job_id, f, 1)
+        a.foundation_version = 2
+        actual.save_knowledge_section(job_id, a, 1)
+        version = 2
+    prepared = actual.prepare_visual_assets(job_id, {"foundation": version, "advanced": version})
     assert prepared["valid"], prepared
     report = actual.validate_presentation(job_id)
     assert "remote_url" not in report["assets"][0]
     assert report["assets"][0]["renderer_fingerprint"] == "direct-capture"
     if profile_name == "study_topic_v3":
-        preview = actual.prepare_document_preview(job_id, make_plan(f, a), 0)
+        preview = actual.prepare_document_preview(job_id, make_plan(f, a, foundation_version=version, advanced_version=version), 0)
         review(actual, job_id, preview)
         draft = promote(actual, job_id, preview)
     else:
@@ -179,6 +206,8 @@ def test_direct_capture_upload_resume_and_readback_keep_the_approved_image(servi
 def test_existing_snapshot_retains_inline_citations_and_approval(service, monkeypatch, profile_name):
     old = deepcopy(profile_snapshot(profile_name))
     old.pop("citation_style")
+    old.pop("visual_assessment_policy_version", None)
+    old.pop("korean_expression_review_version", None)
     with monkeypatch.context() as context:
         context.setattr("cs_study_mcp.service.profile_snapshot", lambda _: old)
         actual = StudyService(service.root)

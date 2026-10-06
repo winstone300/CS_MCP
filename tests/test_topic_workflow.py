@@ -10,12 +10,18 @@ import pytest
 from conftest import PAGE_ID, PARENT_ID, draft_input, sample_source
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from test_presentation_workflow import approve_v2, readable_sections
+from test_presentation_workflow import approve_v2
+from test_presentation_workflow import readable_sections as historical_sections
+from visual_helpers import add_text_assessments, expression_review, review_refs
 
 from cs_study_mcp.models import CrossReview, DocumentPlanInput, PreviewReference, PublicationInput
 from cs_study_mcp.service import StudyService, WorkflowError
 from cs_study_mcp.storage import dumps
 from cs_study_mcp.topic import primary_items
+
+
+def readable_sections():
+    return add_text_assessments(*historical_sections())
 
 
 def make_plan(f, a, **overrides):
@@ -67,6 +73,8 @@ def review(service, job_id, preview):
                 research_revision=content["research_revision"],
                 presentation_hash=preview["presentation_hash"],
                 summary="합성 테스트 검토",
+                reviewed_visual_assessments=review_refs(preview),
+                korean_expression_review=expression_review(preview, role),
             ),
         )
 
@@ -118,6 +126,46 @@ def test_existing_page_plain_text_readback_keeps_approved_bundle(service):
     completed = actual.get_study(job_id)
     assert completed["draft"] == approved["draft"]
     assert completed["reviews"] == approved["reviews"]
+    assert actual.prepare_publication(job_id, draft["version"])["action"] == "already_completed"
+
+
+def test_existing_page_escaped_interval_readback_keeps_approval_and_rejects_changed_endpoint(service):
+    actual = StudyService(service.root)
+    job_id = actual.create_study("합성 구간 이스케이프 재조회 시험")["job_id"]
+    actual.save_research(job_id, [sample_source()])
+    f, a = readable_sections()
+    f.principles[0].body = "A의 ready 대기는 [2,4)와 [6,7)이다."
+    actual.save_knowledge_section(job_id, f, 0)
+    actual.save_knowledge_section(job_id, a, 0)
+    preview = actual.prepare_document_preview(job_id, make_plan(f, a), 0)
+    review(actual, job_id, preview)
+    draft = promote(actual, job_id, preview)
+    approve_v2(actual, job_id, draft)
+    approved = actual.get_study(job_id)
+    intent = actual.prepare_publication(job_id, draft["version"])
+    actual.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="page_created", page_id=PAGE_ID,
+    ))
+    observed = intent["markdown"].replace("[2,4)", r"\[2,4)").replace("[6,7)", r"\[6,7)")
+    rejected = actual.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="verified", page_id=PAGE_ID,
+        observed_title=intent["title"], observed_parent_page_id=PARENT_ID,
+        observed_markdown=observed.replace("2,4)", "2,5)"),
+    ))
+    assert rejected["status"] == "needs_attention"
+    resumed = actual.prepare_publication(job_id, draft["version"])
+    assert resumed["action"] == "resume_existing_page"
+    assert resumed["page_id"] == PAGE_ID
+    assert resumed["attempt_id"] == intent["attempt_id"]
+    completed = actual.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="verified", page_id=PAGE_ID,
+        observed_title=intent["title"], observed_parent_page_id=PARENT_ID,
+        observed_markdown=observed,
+    ))
+    assert completed["status"] == "completed"
+    final = actual.get_study(job_id)
+    assert final["draft"] == approved["draft"]
+    assert final["reviews"] == approved["reviews"]
     assert actual.prepare_publication(job_id, draft["version"])["action"] == "already_completed"
 
 

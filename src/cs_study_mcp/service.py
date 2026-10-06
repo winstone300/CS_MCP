@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter
 
+from .expression_review import expression_review_issues, expression_review_policy
 from .models import (
     AdvancedSection,
     CrossReview,
@@ -28,6 +29,7 @@ from .render import digest, normalize_markdown, render_document
 from .settings import configured_parent, notion_id
 from .storage import Database, dumps, event, now
 from .validation import combined_question_issues, question_blueprint, section_issues
+from .visual_assessment import assessment_policy
 
 SECTION_ADAPTER = TypeAdapter(KnowledgeSection)
 
@@ -230,6 +232,8 @@ class StudyService(PresentationService):
             job = self._editable(db, job_id)
             if not is_readable(job) and (content.visuals or content.comparisons):
                 raise WorkflowError("legacy_profile", "시각 자료는 새 학습 작업에 저장하세요.")
+            if content.visual_assessments and not assessment_policy(profile_for(job)):
+                raise WorkflowError("visual_policy_required", "기존 작업에 새 시각 자료 판단을 추가할 수 없습니다.")
             previous = self._section(db, job_id, content.kind)
             version = previous["version"] if previous else 0
             if version != expected_version:
@@ -328,6 +332,10 @@ class StudyService(PresentationService):
     def record_cross_review(self, job_id: str, review: CrossReview) -> dict:
         with self.db.connect(write=True) as db:
             job = self._editable(db, job_id)
+            if (not expression_review_policy(profile_for(job))
+                    and (review.korean_expression_review is not None
+                         or any(item.expression_detail is not None for item in review.findings))):
+                raise WorkflowError("expression_policy_required", "기존 작업에는 새 한국어 표현 검수 기록을 추가할 수 없습니다.")
             if review.research_revision != job["research_revision"]:
                 raise WorkflowError(
                     "stale_research",
@@ -349,6 +357,8 @@ class StudyService(PresentationService):
                     )
                 if passed and not presentation["valid"]:
                     raise WorkflowError("presentation_invalid", dumps(presentation["errors"]))
+                self._check_assessment_review(job, review, presentation)
+                self._check_expression_review(db, job, review, presentation)
             db.execute(
                 "INSERT INTO cross_reviews(job_id,reviewer,foundation_version,advanced_version,"
                 "research_revision,content,passed,created_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -388,6 +398,40 @@ class StudyService(PresentationService):
                 raise WorkflowError(
                     "stale_visual_review", "실제 그림과 최신 배치를 다시 교차 검토하세요."
                 )
+            if assessment_policy(profile_for(job)):
+                self._check_assessment_review(
+                    job, CrossReview.model_validate_json(review["content"]),
+                    self._require_presentation(db, job),
+                )
+            if expression_review_policy(profile_for(job)):
+                self._check_expression_review(
+                    db, job, CrossReview.model_validate_json(review["content"]),
+                    self._require_presentation(db, job),
+                )
+
+    def _check_expression_review(self, db, job, review, presentation):
+        if not expression_review_policy(profile_for(job)):
+            return
+        if not presentation["valid"]:
+            raise WorkflowError("presentation_invalid", dumps(presentation["errors"]))
+        candidate = self._preview_row(db, job["id"])
+        rendered = json.loads(candidate["rendered"]) if candidate is not None else {}
+        targets = rendered.get("korean_expression_targets")
+        if targets is None:
+            raise WorkflowError("expression_targets_required", "한국어 검수 대상이 고정된 현재 후보가 필요합니다.")
+        errors = expression_review_issues(review, targets, self._source_map(db, job["id"]))
+        if errors:
+            raise WorkflowError(errors[0]["code"], dumps(errors))
+
+    @staticmethod
+    def _check_assessment_review(job, review, presentation):
+        if not assessment_policy(profile_for(job)):
+            return
+        expected = {(item["section"], item["assessment"]["id"])
+                    for item in presentation["visual_assessments"]}
+        observed = [(item.section, item.assessment_id) for item in review.reviewed_visual_assessments]
+        if len(observed) != len(set(observed)) or set(observed) != expected:
+            raise WorkflowError("visual_review_coverage", "같은 후보의 모든 시각 자료 판단을 양쪽 역할이 검토하고 대상 ID를 기록하세요.")
 
     def save_draft(self, job_id: str, content: DraftInput | PreviewReference) -> dict:
         with self.db.connect(write=True) as db:
@@ -863,6 +907,8 @@ class StudyService(PresentationService):
             job["configured_parent_page_id"] = configured_parent(self.root)
             job["presentation_profile"] = profile_for(job)
             job["presentation_profile_hash"] = digest(dumps(job["presentation_profile"]))
+            if assessment_policy(job["presentation_profile"]):
+                job["visual_acquisitions"] = self._acquisition_records(db, job_id)
             job["asset_receipts"] = self._receipts(db, job_id)
             if job["presentation_profile"]["name"] == "study_topic_v3":
                 preview = self._preview_row(db, job_id)
