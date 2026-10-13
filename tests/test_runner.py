@@ -369,12 +369,18 @@ def test_presentation_prompt_upgrade_preserves_custom_settings_and_is_idempotent
     assert "legacy_v1" in upgraded["developer_instructions"]
     assert "visual_assessment_policy_version=1" in upgraded["developer_instructions"]
     assert "korean_expression_review_version=1" in upgraded["developer_instructions"]
+    assert "content_unit_layout_version=1" in upgraded["developer_instructions"]
+    assert "topic_grouping_policy_version=1" in upgraded["developer_instructions"]
+    assert "outline의 display=toggle" in upgraded["developer_instructions"]
+    assert "Markdown의 '> 내용'은 인용 블록" in upgraded["developer_instructions"]
+    assert "문장마다 글머리표를 붙이지 않는다" in upgraded["developer_instructions"]
     if role in {"foundation", "advanced"}:
         assert "korean_expression_targets" in upgraded["developer_instructions"]
         assert "expression_detail" in upgraded["developer_instructions"]
         assert f"focus={'readability' if role == 'foundation' else 'meaning'}" in upgraded["developer_instructions"]
         assert "reviewed_visual_assessments" in upgraded["developer_instructions"]
         assert "result_ids" in upgraded["developer_instructions"]
+        assert "같은 최종 후보 전체" in upgraded["developer_instructions"]
     if role in {"foundation", "advanced"}:
         assert "Markdown" in upgraded["developer_instructions"]
         assert "HTML 파일 생성이나 브라우저 화면 검증은 요구하지 않는다" in upgraded["developer_instructions"]

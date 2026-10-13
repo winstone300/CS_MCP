@@ -45,6 +45,32 @@ def profile_snapshot(name: str = "study_readable_v2") -> dict:
         profile["roles"]["research"] += " 중요한 영어 표현의 원문·문맥·위치를 보존합니다."
         profile["roles"]["main"] += " 용어 표기를 통일하고 표현 수정은 담당 작성자에 배정합니다."
         profile["roles"]["notion_writer"] += " 승인된 한국어 표현을 그대로 발행·재조회합니다."
+        profile["content_unit_layout_version"] = 1
+        profile["guidance"]["explanation"] = (
+            "한 줄 핵심 → 내용별 글머리표 → 짧은 예시 순서로 설명합니다. "
+            "뜻·필요성·동작처럼 의미가 묶이는 단위로 작성하고 문장마다 목록을 만들지 않습니다."
+        )
+        profile["guidance"]["content_units"] = (
+            "처음 보는 독자가 이해할 수 있도록 첫 등장 용어를 쉽게 풀이합니다. "
+            "글머리표는 보통 2~4개로 묶고 각 항목에 하나의 요점과 필요한 짧은 설명을 담습니다. "
+            "주제에 맞는 뜻·이유·동작·예시·비교·주의점만 선택하며 같은 세부 제목을 강제하지 않습니다. "
+            "이해와 선택에 필요한 조건·한계는 핵심 설명에 유지하고 세부 구현·예외는 관련 심화 토글에 둡니다. "
+            "개념 설명에는 '-'를 사용합니다. 체크박스는 지원하지 않습니다. "
+            "작성자가 body의 Markdown을 구성하며 렌더러는 문장을 나누거나 요약하지 않습니다."
+        )
+        profile["topic_grouping_policy_version"] = 1
+        profile["guidance"]["topic_groups"] = (
+            "Notion에서 '>'로 만드는 접기/펼치기 토글처럼 주요 주제를 toggle 그룹으로 묶습니다. "
+            "핵심 요약·대표 그림·목표·선수지식은 먼저 펼쳐 보여 줍니다. "
+            "주제 토글 안에는 한 줄 핵심·내용별 '-' 목록·짧은 예시를 두고, 세부 구현·예외는 두 번째 단계 토글에 둡니다. "
+            "제목만 읽어도 주제와 읽는 순서가 드러나게 작성합니다. "
+            "원문 Markdown의 '>'는 인용 블록이므로 토글은 outline의 display=toggle과 details 형식으로 표현합니다."
+        )
+        profile["roles"]["main"] += " 주요 주제는 toggle 그룹으로 묶고, 세부 구현·예외는 두 번째 단계 toggle로 배치합니다."
+        profile["roles"]["foundation"] += " 한 줄 핵심·의미 단위 목록·짧은 예시를 작성하고 전체 후보의 초보자 이해 흐름과 불필요한 세부 내용을 검토합니다."
+        profile["roles"]["advanced"] += " 간결한 목록 설명에도 기술적 조건·근거·인과관계를 보존하고 심화 토글 배치를 제안합니다."
+        profile["roles"]["research"] += " 핵심 개념을 이해하는 데 필요한 정의·이유·동작·구체 예시의 근거를 우선 수집합니다."
+        profile["roles"]["notion_writer"] += " 승인된 내용 단위 목록과 심화 토글을 그대로 발행·재조회합니다."
         return profile
     if name not in {"legacy_v1", "study_readable_v2"}:
         raise ValueError(f"알 수 없는 문서 프로필: {name}")

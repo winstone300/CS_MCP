@@ -122,6 +122,25 @@ KOREAN_EXPRESSION_REVIEWS = {
 }
 
 
+CONTENT_UNIT_LAYOUT_COMMON = """get_document_blueprint의 저장된 profile.content_unit_layout_version=1인 신규 study_topic_v3 작업에만 내용 단위 목록 구성을 적용한다. 값이 없는 기존 작업의 규칙·본문·해시·승인은 보존하며 새 구성 지침을 소급 적용하지 않는다.
+처음 보는 독자가 한 줄 핵심→내용별 글머리표→짧은 예시 순서로 읽도록 작성한다. 첫 등장 기술 용어는 쉽게 풀이하고 정의·핵심 문장·본문의 중복을 줄인다.
+뜻·필요성·동작처럼 의미가 묶이는 단위로 '-' 목록을 작성한다. 보통 2~4개를 권장하되 주제에 맞게 조정한다. 각 항목은 하나의 요점과 필요한 짧은 설명을 담고 문장마다 글머리표를 붙이지 않는다. '- [ ]' 체크박스는 지원 범위에 포함하지 않는다.
+이해와 기술 선택에 필요한 비교·주의점·조건·한계는 핵심 설명에 유지한다. 세부 구현·예외는 관련 심화 토글 배치를 메인에게 제안한다. 모든 개념에 같은 세부 제목을 강제하지 않는다.
+body의 Markdown은 작성자가 구성한다. 렌더러는 문장을 자동으로 쪼개거나 의미를 요약·삭제하지 않는다. Python은 초보자 이해도나 지엽성 여부를 판정하지 않는다.
+"""
+CONTENT_UNIT_LAYOUTS = {
+    "research": "핵심 개념 이해에 필요한 정의·이유·동작·구체 예시의 원문 근거를 우선 수집한다. 중요한 조건·예외와 근거는 보존하며 핵심 설명과 세부 참고 내용을 구분해 작성 역할에 전달한다.",
+    "foundation": "원리의 key_point는 한 줄 핵심으로, body는 의미 단위 목록과 짧은 예시로 작성한다. 용어 정의·필요성·예시의 라벨 필드는 짧게 쓰고 긴 설명은 관련 body로 옮긴다. 예시는 핵심 상황부터 시작한다. 같은 최종 후보 전체를 readability 기준으로 검토하며 첫 등장 용어 풀이·읽는 흐름·의미 단위 묶음·문장별 과도한 목록화·불필요한 세부 내용을 확인한다. 수정 의견은 기존 findings로 반환하고 상대 본문을 직접 수정하지 않는다.",
+    "advanced": "개념의 key_point는 한 줄 핵심으로, body는 의미 단위 목록과 구체 예시로 작성한다. 트레이드오프·사례의 라벨 필드는 간결하게 쓰고 긴 설명은 관련 body로 연결한다. 세부 구현·예외의 심화 토글 배치를 메인에게 제안한다. 같은 최종 후보 전체를 meaning 기준으로 검토하며 간결하게 고친 설명이 기술적 조건·근거·가능성·예외·인과관계를 보존했는지 원문과 대조한다. 실제 사례의 확인된 사실과 학습 해석은 구분한다. 수정 의견은 기존 findings로 반환하고 상대 본문이나 목차를 직접 수정하지 않는다.",
+    "notion_writer": "승인된 한 줄 핵심·내용 단위 목록·심화 토글과 본문·코드·표·그림을 그대로 발행한다. 실제 재조회로 목록의 항목·순서·중첩과 전체 본문 구조가 보존됐는지 확인한다. 승인 후 표현이나 배치를 변경하지 않는다.",
+}
+
+TOPIC_GROUPING_COMMON = """get_document_blueprint의 저장된 profile.topic_grouping_policy_version=1인 신규 study_topic_v3 작업에만 주제별 토글 구성을 적용한다. 값이 없는 기존 작업은 저장된 목차·규칙·본문·해시·승인을 유지한다.
+Notion의 '>' 접기/펼치기 토글처럼 주요 주제를 outline의 display=toggle 그룹으로 묶는다. 핵심 요약·대표 그림·목표·선수지식은 상단에 펼쳐 보여 준다. 제목만 읽어도 주제와 읽는 순서가 보이게 작성하고, 토글 안에는 한 줄 핵심·내용별 '-' 목록·짧은 예시를 둔다. 세부 구현·예외는 두 번째 단계 토글에 배치한다.
+Markdown의 '> 내용'은 인용 블록이다. 주제 토글은 기존 details 형식과 중첩 자식으로 보존하며 인용 블록이나 텍스트 화살표로 대체하지 않는다. 작성 역할은 목차 배치를 메인에게 제안하고 자기 본문만 수정한다. 양쪽은 같은 후보의 토글 제목·전체 자식·순서·표·코드·그림·답안을 실제로 읽고 검토한다. notion_writer는 승인된 토글과 목록을 변경 없이 발행하고 실제 재조회로 비교한다.
+"""
+
+
 def presentation_instructions(role: str) -> str:
     return (
         "[CS-STUDY PRESENTATION V2]\n"
@@ -138,6 +157,8 @@ def presentation_instructions(role: str) -> str:
         }[role]
         + "\n" + VISUAL_ASSESSMENT_COMMON + VISUAL_ASSESSMENTS[role]
         + "\n" + KOREAN_EXPRESSION_REVIEW_COMMON + KOREAN_EXPRESSION_REVIEWS[role]
+        + "\n" + CONTENT_UNIT_LAYOUT_COMMON + CONTENT_UNIT_LAYOUTS[role]
+        + "\n" + TOPIC_GROUPING_COMMON
         + "\n[/CS-STUDY TOPIC V3]"
     )
 

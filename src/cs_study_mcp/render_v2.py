@@ -43,6 +43,10 @@ def render_readable(
     markdown_overrides: dict[str, str] = {}
     markdown_review = profile.get("review_format") == "markdown"
     references_only = profile.get("citation_style") == "references_only"
+    content_units = (
+        profile.get("name") == "study_topic_v3"
+        and profile.get("content_unit_layout_version") == 1
+    )
     screenshot_references: list[str] = []
 
     def block(text: str) -> None:
@@ -64,6 +68,33 @@ def render_readable(
     def body(section: FoundationSection | AdvancedSection, text: str, claim_ids: list[str]) -> None:
         block(text)
         block(cite(section, claim_ids))
+
+    def labeled_fields(fields: list[tuple[str, str]]) -> None:
+        if not content_units:
+            for label, value in fields:
+                block(f"**{label}:** {value}")
+            return
+        compact = []
+        for label, value in fields:
+            # Only inline one prose line. Keep authored lists, code and other
+            # Markdown blocks intact rather than reflowing their content.
+            parsed = canonicalize_markdown(value)
+            if "\n" not in value and len(parsed) == 1 and parsed[0]["type"] == "paragraph":
+                compact.append(f"- **{label}:** {value}")
+            else:
+                block("\n".join(compact))
+                compact = []
+                block(f"- **{label}:**")
+                block(value)
+        block("\n".join(compact))
+
+    def answer_text(question) -> str:
+        if content_units:
+            return (
+                f"**모범답안:**\n\n{question.answer}\n\n"
+                f"**해설:**\n\n{question.explanation}"
+            )
+        return f"**모범답안:** {question.answer}\n\n**해설:** {question.explanation}"
 
     def materials(section: FoundationSection | AdvancedSection, after_id: str | None) -> None:
         # Separate arrays have a fixed table-then-visual order; each array preserves author order.
@@ -199,7 +230,12 @@ def render_readable(
     block("## 학습 목표·선수지식")
     for objective in foundation.objectives:
         block(f"- {objective}")
-    block("**선수지식:** " + (", ".join(foundation.prerequisites) or "별도 선수지식 없음"))
+    if content_units and foundation.prerequisites:
+        block("**선수지식:**")
+        for prerequisite in foundation.prerequisites:
+            block(f"- {prerequisite}")
+    else:
+        block("**선수지식:** " + (", ".join(foundation.prerequisites) or "별도 선수지식 없음"))
     introduction = list(lines)
     item_blocks = {}
     block("## 핵심 용어")
@@ -207,10 +243,11 @@ def render_readable(
         start = len(lines)
         block(f"### {term.name}")
         body(foundation, term.definition, term.claim_ids)
-        if term.why:
-            block(f"**필요한 이유:** {term.why}")
-        if term.example:
-            block(f"**짧은 예시:** {term.example}")
+        labeled_fields([
+            (label, value) for label, value in [
+                ("필요한 이유", term.why), ("짧은 예시", term.example),
+            ] if value
+        ])
         after(foundation, term.id)
         item_blocks[("foundation", term.id)] = lines[start:]
     block("## 기본 원리·쉬운 예시")
@@ -241,13 +278,12 @@ def render_readable(
     for item in advanced.tradeoffs:
         start = len(lines)
         block(f"### {item.topic}")
-        for label, value in [
+        labeled_fields([
             ("선택지", item.options),
             ("장점", item.advantages),
             ("한계", item.limitations),
             ("선택 기준", item.choose_when),
-        ]:
-            block(f"**{label}:** {value}")
+        ])
         block(cite(advanced, item.claim_ids))
         after(advanced, item.id)
         item_blocks[("advanced", item.id)] = lines[start:]
@@ -255,19 +291,19 @@ def render_readable(
     for case in advanced.cases:
         start = len(lines)
         block(f"### {case.title}")
-        for label, value in [
+        fields = [
             ("대상 시스템", case.system),
             ("문제 상황", case.problem),
             ("선택한 기술", case.technology),
             ("선택 이유", case.rationale),
             ("확인된 결과", case.outcome),
             ("적용 한계", case.limitations),
-        ]:
-            block(f"**{label}:** {value}")
+        ]
         citation = cite(advanced, case.claim_ids)
         if not references_only:
-            block("**확인된 사실의 근거:** " + citation)
-        block("**학습을 위한 해석:** " + case.interpretation)
+            fields.append(("확인된 사실의 근거", citation))
+        fields.append(("학습을 위한 해석", case.interpretation))
+        labeled_fields(fields)
         after(advanced, case.id)
         item_blocks[("advanced", case.id)] = lines[start:]
     if outline is not None:
@@ -310,7 +346,7 @@ def render_readable(
         block(f"### {label} {i}. {question.question}")
         body(
             section,
-            f"**모범답안:** {question.answer}\n\n**해설:** {question.explanation}",
+            answer_text(question),
             question.claim_ids,
         )
     markdown_lines = list(lines)
@@ -318,7 +354,7 @@ def render_readable(
     block("## 면접 질문")
     for label, section, i, question in questions:
         block(f"### {label} {i}. {question.question}")
-        answer = f"**모범답안:** {question.answer}\n\n**해설:** {question.explanation}\n\n{cite(section, question.claim_ids)}"
+        answer = f"{answer_text(question)}\n\n{cite(section, question.claim_ids)}"
         notion_answer = "\n".join("\t" + line for line in answer.split("\n"))
         block(f"<details>\n<summary>답안·해설</summary>\n{notion_answer}\n</details>")
     references = ["## 참고 문헌" if references_only else "## 참고자료", ""]
