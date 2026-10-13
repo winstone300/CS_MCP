@@ -396,6 +396,24 @@ def _walk(blocks: list[dict[str, Any]]):
             yield from _walk(block["children"])
 
 
+def _comparison_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Accept Notion's escaped literal > inside plain HTTP(S) link labels.
+
+    Compare copies so saved manifests, canonical parser output and observation
+    hashes stay unchanged. Code, tables, URLs, other escapes and literal
+    backslashes retain their exact values.
+    """
+    comparable = deepcopy(blocks)
+    link = re.compile(r"(?<!!)\[([^\[\]`<\n]+)\]\((https?://[^\s()]+)\)")
+    for block in _walk(comparable):
+        if block["type"] in {"paragraph", "list_item"} and "`" not in block["text"]:
+            def unescape_label(match: re.Match) -> str:
+                label = re.sub(r"(?<!\\)\\>", ">", match.group(1))
+                return f"[{label}]({match.group(2)})"
+            block["text"] = link.sub(unescape_label, block["text"])
+    return comparable
+
+
 def _asset_hash(asset: dict[str, Any]) -> str | None:
     value = asset.get("hash") or asset.get("asset_hash")
     return value if isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) else None
@@ -495,7 +513,7 @@ def verify_readback(
             errors.append("Image has no unambiguous byte-hash or stable upload-receipt proof: " + image["ref"])
         else:
             image["ref"] = "asset://" + next(iter(matches))
-    if actual != expected:
+    if _comparison_blocks(actual) != _comparison_blocks(expected):
         errors.append("Readback block order, text, table, toggle, diagram or image content differs")
     observed_hash = hashlib.sha256(json.dumps(actual, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return {"valid": not errors, "errors": errors, "observed_hash": observed_hash}

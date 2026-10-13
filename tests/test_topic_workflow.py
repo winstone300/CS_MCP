@@ -88,6 +88,45 @@ def promote(service, job_id, preview):
     )
 
 
+def test_existing_page_reference_escape_recovery_keeps_approval_and_page(service):
+    actual = StudyService(service.root)
+    job_id = actual.create_study("합성 참고 링크 표기 복구 시험")["job_id"]
+    source = sample_source()
+    source.title = "Java Tutorials > Concurrency"
+    actual.save_research(job_id, [source])
+    f, a = readable_sections()
+    actual.save_knowledge_section(job_id, f, 0)
+    actual.save_knowledge_section(job_id, a, 0)
+    preview = actual.prepare_document_preview(job_id, make_plan(f, a), 0)
+    review(actual, job_id, preview)
+    draft = promote(actual, job_id, preview)
+    approve_v2(actual, job_id, draft)
+    approved = actual.get_study(job_id)
+    intent = actual.prepare_publication(job_id, draft["version"])
+    actual.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="page_created", page_id=PAGE_ID,
+    ))
+    actual.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="uncertain", page_id=PAGE_ID,
+        error="합성 기존 클라이언트 링크 표기 불일치",
+    ))
+    resumed = actual.prepare_publication(job_id, draft["version"])
+    assert resumed["action"] == "resume_existing_page"
+    assert resumed["page_id"] == PAGE_ID and resumed["attempt_id"] == intent["attempt_id"]
+    observed = intent["markdown"].replace("Java Tutorials > Concurrency", r"Java Tutorials \> Concurrency")
+    assert observed != intent["markdown"]
+    result = actual.record_publication(job_id, PublicationInput(
+        attempt_id=intent["attempt_id"], outcome="verified", page_id=PAGE_ID,
+        observed_title=intent["title"], observed_parent_page_id=PARENT_ID,
+        observed_markdown=observed,
+    ))
+    assert result["status"] == "completed"
+    completed = actual.get_study(job_id)
+    assert completed["draft"] == approved["draft"]
+    assert completed["reviews"] == approved["reviews"]
+    assert actual.prepare_publication(job_id, draft["version"])["action"] == "already_completed"
+
+
 def test_existing_page_plain_text_readback_keeps_approved_bundle(service):
     actual = StudyService(service.root)
     job_id = actual.create_study("합성 코드 언어 재조회 시험")["job_id"]

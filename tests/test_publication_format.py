@@ -60,6 +60,50 @@ def test_forged_observed_blocks_do_not_override_markdown():
     assert any("Supplied observed blocks" in error for error in result["errors"])
 
 
+@pytest.mark.parametrize("prefix", ["", "- ", "1. "])
+def test_notion_escaped_gt_in_reference_link_labels_keeps_saved_blocks_and_raw_hash(prefix):
+    approved = prefix + "[1: Deadlock (Java Tutorials > Classes > Concurrency)](https://example.org/deadlock) — 확인일"
+    observed = approved.replace(">", r"\>")
+    expected = canonicalize_markdown(approved)
+    actual = canonicalize_markdown(observed)
+    assert expected != actual
+    original = repr(expected)
+    result = verify_readback(expected, observed)
+    assert result["valid"]
+    assert repr(expected) == original
+    assert canonicalize_markdown(observed) == actual
+    assert result["observed_hash"] != verify_readback(expected, approved)["observed_hash"]
+    assert verify_readback(actual, approved)["valid"]
+    assert not verify_readback(expected, observed, observed_blocks=expected)["valid"]
+
+
+@pytest.mark.parametrize("changed", [
+    r"[1: Java Tutorials \> Different](https://example.org/deadlock) — 확인일",
+    r"[1: Java Tutorials \> Concurrency](https://example.org/changed) — 확인일",
+    r"[1: Java Tutorials \\> Concurrency](https://example.org/deadlock) — 확인일",
+])
+def test_link_label_escape_does_not_hide_changed_title_url_or_literal_backslash(changed):
+    approved = "[1: Java Tutorials > Concurrency](https://example.org/deadlock) — 확인일"
+    assert not verify_readback(canonicalize_markdown(approved), changed)["valid"]
+
+
+@pytest.mark.parametrize("approved", [
+    "x > y",
+    "- x > y",
+    "## [x > y](https://example.org)",
+    "`[x > y](https://example.org)`",
+    "[x > y](https://example.org) and `code`",
+    "```text\n[x > y](https://example.org)\n```",
+    "```mermaid\nA[x] --> B[y]\n```",
+    "| 값 |\n| --- |\n| [x > y](https://example.org) |",
+    "[x > y](https://example.org/x>y)",
+])
+def test_gt_equivalence_keeps_code_tables_prose_and_link_destinations_exact(approved):
+    assert not verify_readback(
+        canonicalize_markdown(approved), approved.replace(">", r"\>"),
+    )["valid"]
+
+
 @pytest.mark.parametrize("text", [
     "```mermaid\nflowchart LR\nA-->B",
     "<details>\n<summary>답</summary>\n본문",
