@@ -7,9 +7,9 @@ max_concurrent_threads_per_session = 3
 
 # BEGIN CS-STUDY MANAGED CONNECTIONS
 [mcp_servers.cs_study]
-command = "D:/cs_mcp/CS_MCP/.venv/Scripts/python.exe"
-args = ["-m", "cs_study_mcp", "--project", "D:/cs_mcp/CS_MCP", "serve", "--role", "main"]
-cwd = "D:/cs_mcp/CS_MCP"
+command = "C:/Users/SSAFY/Desktop/cs_MCP/CS_MCP/.venv/Scripts/python.exe"
+args = ["-m", "cs_study_mcp", "--project", "C:/Users/SSAFY/Desktop/cs_MCP/CS_MCP", "serve", "--role", "main"]
+cwd = "C:/Users/SSAFY/Desktop/cs_MCP/CS_MCP"
 enabled = true
 required = true
 startup_timeout_sec = 30
